@@ -1,7 +1,9 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -93,4 +95,50 @@ func (s *Server) songRow(c echo.Context) error {
 		return err
 	}
 	return c.Render(http.StatusOK, "song-row", sng)
+}
+
+// retrySong puts a failed song back in the queue and returns its row,
+// which is pending again and so starts polling.
+func (s *Server) retrySong(c echo.Context) error {
+	err := s.db.RetrySong(c.Request().Context(), c.Param("id"))
+	// ErrNotFound: deleted, or not failed any more (e.g. retried from another tab);
+	// either way the current row is the right answer
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return err
+	}
+	return s.songRow(c)
+}
+
+// deleteSong removes the song and its files. The empty response replaces the row,
+// removing it from the list.
+func (s *Server) deleteSong(c echo.Context) error {
+	ctx := c.Request().Context()
+	id := c.Param("id")
+
+	err := s.db.DeleteSong(ctx, id)
+	switch {
+	case errors.Is(err, db.ErrSongBusy):
+		c.Response().Header().Set("HX-Reswap", "none")
+		toast(c, "This song is being processed. Try again when it's done.", true)
+		return c.NoContent(http.StatusOK)
+	case errors.Is(err, db.ErrNotFound):
+		return c.NoContent(http.StatusOK) // already gone
+	case err != nil:
+		return err
+	}
+
+	// the row is already deleted, so a failure here only leaves unreferenced files behind
+	if err := s.store.DeleteSong(ctx, id); err != nil {
+		log.Printf("deleting files of song %s: %v", id, err)
+	}
+	toast(c, "Song deleted.", false)
+	return c.NoContent(http.StatusOK)
+}
+
+// toast shows a message in the page's toast (see app.js) through HX-Trigger.
+func toast(c echo.Context, message string, isError bool) {
+	payload, _ := json.Marshal(map[string]any{
+		"showToast": map[string]any{"message": message, "error": isError},
+	})
+	c.Response().Header().Set("HX-Trigger", string(payload))
 }

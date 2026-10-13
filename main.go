@@ -99,7 +99,7 @@ func run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return processor.Run(ctx, database, store) })
 	g.Go(func() error {
-		server := web.New(database, web.Config{AllowRegistration: cfg.AllowRegistration})
+		server := web.New(database, store, web.Config{AllowRegistration: cfg.AllowRegistration})
 		log.Printf("listening on %s", cfg.Addr)
 		return server.Run(ctx, cfg.Addr)
 	})

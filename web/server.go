@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/glgaspar/minusOne/db"
+	"github.com/glgaspar/minusOne/processor"
 )
 
 //go:embed templates static
@@ -22,13 +23,14 @@ type Config struct {
 }
 
 type Server struct {
-	db   *db.DB
-	cfg  Config
-	echo *echo.Echo
+	db    *db.DB
+	store *processor.Store
+	cfg   Config
+	echo  *echo.Echo
 }
 
-func New(database *db.DB, cfg Config) *Server {
-	s := &Server{db: database, cfg: cfg, echo: echo.New()}
+func New(database *db.DB, store *processor.Store, cfg Config) *Server {
+	s := &Server{db: database, store: store, cfg: cfg, echo: echo.New()}
 	s.echo.HideBanner = true
 	s.echo.Renderer = newRenderer()
 	s.routes()
@@ -56,6 +58,8 @@ func (s *Server) routes() {
 	app.GET("/catalog/songs", s.catalogSongs)
 	app.POST("/songs", s.addSong)
 	app.GET("/songs/:id/row", s.songRow)
+	app.POST("/songs/:id/retry", s.retrySong)
+	app.DELETE("/songs/:id", s.deleteSong)
 }
 
 // Run serves on addr until ctx is cancelled, then gives in-flight requests

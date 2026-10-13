@@ -48,6 +48,7 @@ type Track struct {
 var (
 	ErrNoJob      = errors.New("no pending job")
 	ErrSongExists = errors.New("song already in catalog")
+	ErrSongBusy   = errors.New("song is being processed")
 )
 
 func isUniqueViolation(err error, constraint string) bool {
@@ -241,8 +242,7 @@ func (d *DB) GetSong(ctx context.Context, id string) (*Song, error) {
 		FROM songs s
 		LEFT JOIN users u ON u.id = s.added_by
 		WHERE s.id = $1`, id))
-	var pgErr *pgconn.PgError
-	if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &pgErr) && pgErr.Code == "22P02") { // 22P02: not a uuid
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -261,4 +261,55 @@ func (d *DB) GetSong(ctx context.Context, id string) (*Song, error) {
 	}
 	s.Tracks = tracks
 	return s, nil
+}
+
+// isInvalidUUID reports whether err comes from passing a malformed id, which
+// callers treat the same as an id that doesn't exist.
+func isInvalidUUID(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
+}
+
+// DeleteSong removes a song and its tracks. Songs being processed can't be
+// deleted (ErrSongBusy): the worker would keep uploading files for a song
+// that no longer exists. The caller removes the files from storage.
+func (d *DB) DeleteSong(ctx context.Context, id string) error {
+	tag, err := d.pool.Exec(ctx, `DELETE FROM songs WHERE id = $1 AND status <> 'processing'`, id)
+	if isInvalidUUID(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("deleting song %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+
+	var exists bool
+	if err := d.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM songs WHERE id = $1)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("checking song %s: %w", id, err)
+	}
+	if exists {
+		return ErrSongBusy
+	}
+	return ErrNotFound
+}
+
+// RetrySong puts a failed song back in the queue with a fresh set of attempts.
+// It returns ErrNotFound if the song doesn't exist or isn't failed.
+func (d *DB) RetrySong(ctx context.Context, id string) error {
+	tag, err := d.pool.Exec(ctx, `
+		UPDATE songs
+		SET status = 'pending', attempts = 0, last_error = NULL, locked_at = NULL, updated_at = now()
+		WHERE id = $1 AND status = 'failed'`, id)
+	if isInvalidUUID(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("retrying song %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

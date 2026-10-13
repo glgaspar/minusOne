@@ -1,16 +1,15 @@
 package processor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/kkdai/youtube/v2"
 
 	"github.com/glgaspar/minusOne/db"
 )
@@ -41,51 +40,74 @@ func (s *Song) OriginalPath() string {
 	return filepath.Join(s.WorkDir, "original"+s.Extension)
 }
 
-// Download fetches the audio into WorkDir and uploads it to storage as the original.
+// Download fetches the best audio stream into WorkDir with yt-dlp and uploads
+// it to storage as the original.
+//
+// yt-dlp is used instead of a Go library because YouTube keeps changing what
+// stream URLs need (signatures, throttling params, tokens) and yt-dlp is the
+// one that keeps up. It must be on PATH, along with deno for YouTube's JS challenges.
 func (s *Song) Download(ctx context.Context, store *Store) error {
-	client := youtube.Client{}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "yt-dlp",
+		"--no-playlist",
+		"--no-warnings",
+		"--format", "bestaudio",
+		"--output", filepath.Join(s.WorkDir, "original.%(ext)s"),
+		// one JSON line once the file is in place; artist falls back to the channel name
+		"--print", "after_move:[%(title)j, %(artist,channel,uploader)j, %(filepath)j]",
+		s.URL,
+	)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if msg := lastLine(stderr.String()); msg != "" {
+			return errors.New(msg)
+		}
+		return fmt.Errorf("running yt-dlp: %w", err)
+	}
 
-	video, err := client.GetVideoContext(ctx, s.URL)
+	var info [3]string // title, artist, file path
+	if err := json.Unmarshal([]byte(lastLine(stdout.String())), &info); err != nil {
+		return fmt.Errorf("reading yt-dlp output %q: %w", stdout.String(), err)
+	}
+	s.Title, s.Author = info[0], info[1]
+	s.Extension = filepath.Ext(info[2])
+
+	file, err := os.Open(info[2])
 	if err != nil {
-		return fmt.Errorf("getting video metadata: %w", err)
-	}
-	s.Title = video.Title
-	s.Author = video.Author
-
-	audioFormats := video.Formats.WithAudioChannels().Type("audio")
-	if len(audioFormats) == 0 {
-		return errors.New("no audio-only stream found")
-	}
-	targetFormat := &audioFormats[0]
-
-	stream, _, err := client.GetStreamContext(ctx, video, targetFormat)
-	if err != nil {
-		return fmt.Errorf("getting download stream: %w", err)
-	}
-	defer stream.Close()
-
-	s.Extension = ".m4a"
-	if strings.Contains(targetFormat.MimeType, "webm") {
-		s.Extension = ".webm"
-	}
-
-	file, err := os.Create(s.OriginalPath())
-	if err != nil {
-		return fmt.Errorf("creating file: %w", err)
+		return err
 	}
 	defer file.Close()
-
-	size, err := io.Copy(file, stream)
+	stat, err := file.Stat()
 	if err != nil {
-		return fmt.Errorf("saving audio to file: %w", err)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 
-	contentType, _, _ := strings.Cut(targetFormat.MimeType, ";")
 	s.OriginalKey = OriginalKey(s.ID, s.Extension)
-	return store.Put(ctx, s.OriginalKey, file, size, contentType)
+	return store.Put(ctx, s.OriginalKey, file, stat.Size(), audioContentType(s.Extension))
+}
+
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// audioContentType covers what yt-dlp's bestaudio returns; mime.TypeByExtension
+// depends on the system's mime database and calls .webm video.
+func audioContentType(ext string) string {
+	switch ext {
+	case ".webm":
+		return "audio/webm"
+	case ".m4a", ".mp4":
+		return "audio/mp4"
+	case ".opus", ".ogg":
+		return "audio/ogg"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".wav":
+		return "audio/wav"
+	}
+	return "application/octet-stream"
 }
 
 // SplitTracks separates the original into one file per instrument in WorkDir
@@ -121,7 +143,7 @@ func uploadTrack(ctx context.Context, store *Store, songID string, t *Track) err
 	}
 	t.Size = info.Size()
 	t.Key = TrackKey(songID, t.Type, t.Extension)
-	return store.Put(ctx, t.Key, file, t.Size, mime.TypeByExtension(t.Extension))
+	return store.Put(ctx, t.Key, file, t.Size, audioContentType(t.Extension))
 }
 
 // SaveToDatabase records the uploaded tracks.

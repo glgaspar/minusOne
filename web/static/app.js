@@ -23,6 +23,11 @@ document.addEventListener("songAdded", () => {
   toast("Song added to the catalog.");
 });
 
+// Sent by the server (HX-Trigger: {"showToast": {"message": ..., "error": ...}}).
+document.addEventListener("showToast", (e) => {
+  toast(e.detail.message, e.detail.error);
+});
+
 // htmx doesn't swap error responses, so without this a failed request looks like nothing happened.
 document.addEventListener("htmx:responseError", (e) => {
   toast(`Something went wrong (${e.detail.xhr.status}). Try again.`, true);

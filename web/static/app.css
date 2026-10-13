@@ -142,8 +142,16 @@ button.link:hover { text-decoration: underline; }
 .song-info { flex: 1; min-width: 0; }
 .song-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .song-meta { font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.icon-link { color: var(--muted); text-decoration: none; font-size: 1.1rem; padding: 4px; }
-.icon-link:hover { color: var(--accent); }
+.song-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.icon-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 32px; height: 32px; padding: 0 4px;
+  color: var(--muted); text-decoration: none; font-size: 1.1rem;
+  background: none; border: 0; border-radius: 6px; cursor: pointer;
+}
+.icon-link:hover { color: var(--accent); background: var(--bg); }
+.icon-delete:hover { color: var(--error); }
+button.small { padding: 4px 10px; font-size: 0.85rem; }
 
 .badge { font-size: 0.75rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .badge-pending { background: var(--badge-pending-bg); color: var(--badge-pending); }

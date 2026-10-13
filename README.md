@@ -14,9 +14,11 @@ browser ──htmx──▶ web ──▶ postgres (songs queue) ◀── proce
 ```
 
 1. A logged-in user pastes a link in the catalog. The link is normalized to `https://www.youtube.com/watch?v=<id>`, so the same video can't be added twice, and the song is saved as `pending`.
-2. The processor, running in the same binary, claims the oldest pending song (`FOR UPDATE SKIP LOCKED`). It downloads the audio into a temporary directory and uploads it to object storage.
+2. The processor, running in the same binary, claims the oldest pending song (`FOR UPDATE SKIP LOCKED`). It downloads the audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp) into a temporary directory and uploads it to object storage.
 3. It splits the audio into tracks (TODO), uploads each track, and records it in the `tracks` table.
-4. The song is marked `done`. A failed song is retried up to 3 times, then marked `failed`. A song interrupted by a shutdown goes back to the queue.
+4. The song is marked `done`. A failed song is retried up to 3 times, then marked `failed`; its **Retry** button puts it back in the queue with 3 new attempts. A song interrupted by a shutdown goes back to the queue.
+
+Songs can be deleted from the catalog, which also deletes their audio files. A song can't be deleted while it is being processed.
 5. Rows still in progress poll their own status every 3 seconds, so the catalog updates without a page reload.
 
 Audio files never go into Postgres. The database holds metadata and object keys, and the files live in S3-compatible storage ([RustFS](https://github.com/rustfs/rustfs)).
@@ -90,7 +92,7 @@ The binary itself reads these. Compose sets them from `.env`; set them yourself 
 
 ## Development
 
-Requirements: Go 1.26, Docker.
+Requirements: Go 1.26, Docker, and on your PATH: a recent [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) (yt-dlp uses it for YouTube's JavaScript challenges). Distribution packages of yt-dlp are usually too old for YouTube; install it with `pip install -U "yt-dlp[default]"`.
 
 Run Postgres and RustFS in Docker and the app on the host:
 
@@ -118,7 +120,7 @@ db/                  Postgres: connection, migrations, queries (shared by web an
   migrations/        SQL files, applied in name order on startup
 processor/           the song work
   processor.go       queue loop: claim, process, mark done / failed / requeued
-  song.go            download, split (TODO), upload, save tracks
+  song.go            download (yt-dlp), split (TODO), upload, save tracks
   url.go             YouTube link normalization
   storage.go         S3 client for audio files
 web/                 the web app (echo + htmx)
@@ -129,6 +131,16 @@ web/                 the web app (echo + htmx)
   templates/         page and partial templates
   static/            css, js, htmx (vendored, no CDN)
 ```
+
+## When downloads start failing
+
+YouTube changes its player regularly, and older yt-dlp versions stop working (typically `HTTP Error 403` or `Requested format is not available` in `docker compose logs app`). The image pins yt-dlp in the `Dockerfile` (`ARG YTDLP_VERSION`). To update, set it to the [latest release](https://github.com/yt-dlp/yt-dlp/releases) and rebuild:
+
+```sh
+docker compose build --build-arg YTDLP_VERSION=<version> app && docker compose up -d app
+```
+
+Songs that failed in the meantime can be put back in the queue with their **Retry** button in the catalog.
 
 ## Deploying
 

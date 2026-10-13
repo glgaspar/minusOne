@@ -22,8 +22,25 @@
     {{if eq .Status "failed"}}{{with .LastError}}<div class="error small">{{.}}</div>{{end}}{{end}}
   </div>
   <span class="badge badge-{{.Status}}">{{statusLabel .Status}}</span>
-  <a class="icon-link" href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer"
-     title="Open on YouTube" aria-label="Open on YouTube">↗</a>
+  <div class="song-actions">
+    {{if eq .Status "failed"}}
+    <button type="button" class="small"
+            hx-post="/songs/{{.ID}}/retry" hx-target="closest li" hx-swap="outerHTML">Retry</button>
+    {{end}}
+    <a class="icon-link" href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer"
+       title="Open on YouTube" aria-label="Open on YouTube">↗</a>
+    {{/* a song being processed can't be deleted; see db.DeleteSong */}}
+    {{if ne .Status "processing"}}
+    <button type="button" class="icon-link icon-delete" title="Delete" aria-label="Delete song"
+            hx-delete="/songs/{{.ID}}" hx-target="closest li" hx-swap="outerHTML"
+            hx-confirm="Delete “{{with .Title}}{{.}}{{else}}this song{{end}}”? Its audio files are deleted too.">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>
+      </svg>
+    </button>
+    {{end}}
+  </div>
 </li>
 {{end}}
 
