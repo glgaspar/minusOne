@@ -1,0 +1,51 @@
+{{/* song-list renders a catalogPage; kept on one line so an empty list is
+     truly :empty and the CSS can show the empty state */}}
+{{define "song-list"}}
+<div id="song-list">
+  <ul id="songs" class="songs">{{range .Songs}}{{template "song-row" .}}{{end}}</ul>
+  <p class="empty muted">
+    {{if .Query}}No songs match “{{.Query}}”.{{else}}No songs yet. Add one by pasting a YouTube link.{{end}}
+  </p>
+</div>
+{{end}}
+
+{{/* Rows still being processed poll themselves until they're done or failed. */}}
+{{define "song-row"}}
+<li class="song" id="song-{{.ID}}"
+    {{if inProgress .Status}}hx-get="/songs/{{.ID}}/row" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
+  <img class="thumb" src="https://i.ytimg.com/vi/{{videoID .SourceURL}}/mqdefault.jpg" alt="" loading="lazy">
+  <div class="song-info">
+    <div class="song-title">{{with .Title}}{{.}}{{else}}<span class="muted">Fetching details…</span>{{end}}</div>
+    <div class="song-meta muted">
+      {{with .Author}}{{.}} · {{end}}added {{with .AddedBy}}by {{.}} {{end}}{{ago .CreatedAt}}
+    </div>
+    {{if eq .Status "failed"}}{{with .LastError}}<div class="error small">{{.}}</div>{{end}}{{end}}
+  </div>
+  <span class="badge badge-{{.Status}}">{{statusLabel .Status}}</span>
+  <a class="icon-link" href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer"
+     title="Open on YouTube" aria-label="Open on YouTube">↗</a>
+</li>
+{{end}}
+
+{{define "add-form"}}
+<form id="add-form" class="add-form" hx-post="/songs" hx-swap="outerHTML"
+      hx-disabled-elt="find button[type=submit]">
+  <h2>Add a song</h2>
+  <p class="muted">Paste a YouTube link. It will be downloaded and split into tracks.</p>
+  <input name="url" value="{{.URL}}" placeholder="https://youtu.be/…" inputmode="url"
+         autocomplete="off" spellcheck="false" required autofocus aria-label="YouTube link"
+         {{if .Error}}aria-invalid="true"{{end}}>
+  {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="actions">
+    <button type="button" data-close-dialog>Cancel</button>
+    <button type="submit" class="primary">Add to catalog</button>
+  </div>
+</form>
+{{end}}
+
+{{/* Answer to a successful add: a fresh form replaces the old one,
+     and the new row goes to the top of the list out-of-band. */}}
+{{define "add-song-response"}}
+{{template "add-form" .Form}}
+<ul hx-swap-oob="afterbegin:#songs">{{template "song-row" .Song}}</ul>
+{{end}}

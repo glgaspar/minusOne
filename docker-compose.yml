@@ -1,0 +1,72 @@
+name: minusone
+
+# Secrets and settings come from .env (see .env.example). Values marked :? are required.
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      s3:
+        condition: service_healthy
+    environment:
+      MINUSONE_ADDR: ":8080"
+      MINUSONE_REGISTRATION: ${MINUSONE_REGISTRATION:-open}
+
+      MINUSONE_DB_HOST: db
+      MINUSONE_DB_PORT: "5432"
+      MINUSONE_DB_USER: ${POSTGRES_USER:-minusone}
+      MINUSONE_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      MINUSONE_DB_NAME: ${POSTGRES_DB:-minusone}
+      MINUSONE_DB_SSLMODE: disable
+
+      MINUSONE_S3_ENDPOINT: s3:9000
+      MINUSONE_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minusone}
+      MINUSONE_S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      MINUSONE_S3_BUCKET: ${S3_BUCKET:-minusone}
+      MINUSONE_S3_SSL: "false"
+    ports:
+      - "${MINUSONE_PORT:-8080}:8080"
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-minusone}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-minusone}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # localhost only, so `go run .` works during development; nothing outside the machine can reach it
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # S3-compatible object storage (MinIO no longer publishes images; the S3 API is the same)
+  s3:
+    image: rustfs/rustfs:1.0.1
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-minusone}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    volumes:
+      - s3data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # web console
+
+volumes:
+  pgdata:
+  s3data:

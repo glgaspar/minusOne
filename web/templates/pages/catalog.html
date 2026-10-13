@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="catalog">
+  <div class="catalog-head">
+    <h1>Catalog</h1>
+    <button type="button" class="primary" data-open-dialog="add-song">+ Add song</button>
+  </div>
+
+  <input type="search" name="q" value="{{.Query}}" class="search"
+         placeholder="Search by title or artist" aria-label="Search the catalog"
+         hx-get="/catalog/songs" hx-trigger="input changed delay:250ms, search"
+         hx-target="#song-list" hx-swap="outerHTML">
+
+  {{template "song-list" .}}
+</section>
+
+<dialog id="add-song" aria-label="Add a song">
+  {{template "add-form" .AddForm}}
+</dialog>
+{{end}}

@@ -1,0 +1,35 @@
+{{define "auth-form"}}
+{{$register := eq .Mode "register"}}
+<form class="card auth-form" method="post" action="/{{.Mode}}"
+      hx-post="/{{.Mode}}" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+  <h1>{{if $register}}Create account{{else}}Log in{{end}}</h1>
+
+  {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+  <label>
+    Username
+    <input name="username" value="{{.Username}}" autocomplete="username"
+           autocapitalize="none" spellcheck="false" required autofocus>
+  </label>
+  <label>
+    Password
+    <input type="password" name="password" required
+           autocomplete="{{if $register}}new-password{{else}}current-password{{end}}"
+           {{if $register}}minlength="8" maxlength="72"{{end}}>
+  </label>
+  {{if $register}}
+  <label>
+    Confirm password
+    <input type="password" name="confirm" autocomplete="new-password" required>
+  </label>
+  {{end}}
+
+  <button type="submit" class="primary">{{if $register}}Create account{{else}}Log in{{end}}</button>
+
+  <p class="muted auth-switch">
+    {{if $register}}Already have an account? <a href="/login">Log in</a>
+    {{else if .AllowRegistration}}No account yet? <a href="/register">Create one</a>
+    {{end}}
+  </p>
+</form>
+{{end}}
