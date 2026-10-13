@@ -23,6 +23,17 @@ Songs can be deleted from the catalog, which also deletes their audio files. A s
 
 Audio files never go into Postgres. The database holds metadata and object keys, and the files live in S3-compatible storage ([RustFS](https://github.com/rustfs/rustfs)).
 
+## Playing
+
+There is one shared play queue. Anyone can add **Ready** songs from the catalog with **+ Queue**, e.g. from their phone, while one screen (a TV or laptop) has the **Player** page open.
+
+- The player plays the first song in the queue. When it ends, or someone skips it from any device, the song is removed and the next one starts. New songs are picked up within a few seconds.
+- Browsers only allow sound after a click, so the player needs one click on **Start player** each time the page is opened.
+- The song's YouTube video plays muted. The sound comes from the song's tracks, mixed in the browser: each track has its own volume and mute. **Original** is the downloaded audio; once a song has split tracks, Original starts muted so it doesn't double them. Volume and mute settings are remembered per track type on that screen.
+- The video follows the audio and is re-seeked if it drifts. If the owner doesn't allow embedding, the thumbnail is shown instead.
+
+Audio is served by the app (`/songs/<id>/audio/<track>`) to logged-in users, so the storage stays private.
+
 ## Running with Docker
 
 Requirements: Docker with Compose v2.
@@ -126,10 +137,11 @@ processor/           the song work
 web/                 the web app (echo + htmx)
   server.go          routes and server lifecycle
   auth.go            register, login, sessions
-  catalog.go         catalog, search, add-song modal, status polling
+  catalog.go         catalog, search, add-song modal, status polling, retry, delete
+  player.go          player page, play queue, audio streaming
   render.go          template rendering
   templates/         page and partial templates
-  static/            css, js, htmx (vendored, no CDN)
+  static/            css, js, htmx (vendored, no CDN); player.js is the audio mixer and video sync
 ```
 
 ## When downloads start failing

@@ -4,14 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · minusOne</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/app.js" defer></script>
+  {{block "scripts" .}}{{end}}
 </head>
 <body>
   {{with .User}}
   <header class="topbar">
     <a href="/catalog" class="brand">minus<span>One</span></a>
+    <nav class="topnav">
+      <a href="/catalog" {{if eq $.Title "Catalog"}}aria-current="page"{{end}}>Catalog</a>
+      <a href="/player" {{if eq $.Title "Player"}}aria-current="page"{{end}}>Player</a>
+    </nav>
     <div class="topbar-user">
       <span class="muted">{{.Username}}</span>
       <form method="post" action="/logout"><button type="submit" class="link">Log out</button></form>

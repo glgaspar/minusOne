@@ -1,0 +1,24 @@
+{{/* queue-list renders []db.QueueItem; the first item is the one playing. */}}
+{{define "queue-list"}}
+{{if .}}
+<ol class="queue-items">
+  {{range $i, $item := .}}
+  <li class="queue-item{{if eq $i 0}} is-current{{end}}">
+    <img class="queue-thumb" src="https://i.ytimg.com/vi/{{videoID $item.Song.SourceURL}}/mqdefault.jpg" alt="" loading="lazy">
+    <div class="queue-info">
+      <div class="song-title">{{with $item.Song.Title}}{{.}}{{end}}</div>
+      <div class="song-meta muted">
+        {{if eq $i 0}}Now playing{{else if eq $i 1}}Up next{{else}}Later{{end}}{{with $item.AddedBy}} · {{.}}{{end}}
+      </div>
+    </div>
+    <button type="button" class="icon-link icon-delete"
+            title="{{if eq $i 0}}Skip{{else}}Remove from queue{{end}}"
+            aria-label="{{if eq $i 0}}Skip{{else}}Remove from queue{{end}}"
+            hx-delete="/queue/{{$item.ID}}" hx-target="#queue-list" hx-swap="innerHTML">✕</button>
+  </li>
+  {{end}}
+</ol>
+{{else}}
+<p class="muted queue-empty">The queue is empty. Add songs from the <a href="/catalog">catalog</a>.</p>
+{{end}}
+{{end}}

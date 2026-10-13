@@ -1,0 +1,47 @@
+{{define "scripts"}}<script src="/static/player.js" defer></script>{{end}}
+
+{{define "content"}}
+<section class="player-page">
+  <div class="player">
+    <div class="screen">
+      <div id="yt-player"></div>
+      <img id="cover" class="cover" alt="" hidden>
+      <div class="screen-overlay" id="start-overlay">
+        <button type="button" class="primary big" id="start-button">▶ Start player</button>
+        <p>Browsers only play sound after a click.<br>After that, songs in the queue play one after another.</p>
+      </div>
+      <div class="screen-overlay" id="screen-message" hidden></div>
+    </div>
+
+    <div class="now-playing">
+      <div class="np-title" id="np-title">Nothing playing</div>
+      <div class="np-author muted" id="np-author"></div>
+    </div>
+
+    <div class="transport">
+      <button type="button" id="play-pause" class="transport-button" aria-label="Play" disabled>▶</button>
+      <span class="time" id="time-current">0:00</span>
+      <input type="range" id="seek" min="0" max="0" step="0.1" value="0" aria-label="Position" disabled>
+      <span class="time" id="time-total">0:00</span>
+      <button type="button" id="skip" disabled>Skip ⏭</button>
+    </div>
+
+    <div class="mixer card" id="mixer" aria-label="Tracks" hidden></div>
+  </div>
+
+  <aside class="queue card">
+    <h2>Queue</h2>
+    <div id="queue-list" hx-get="/queue" hx-trigger="every 5s, queueChanged from:body" hx-swap="innerHTML">
+      {{template "queue-list" .Queue}}
+    </div>
+  </aside>
+</section>
+
+<template id="track-template">
+  <div class="track">
+    <span class="track-label"></span>
+    <button type="button" class="track-mute small" aria-pressed="false">Mute</button>
+    <input type="range" class="track-volume" min="0" max="1" step="0.01">
+  </div>
+</template>
+{{end}}

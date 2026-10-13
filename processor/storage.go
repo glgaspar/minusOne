@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -73,6 +74,28 @@ func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	}
 	return obj, nil
 }
+
+// Open returns a seekable reader for the object, for serving it with
+// http.ServeContent (which needs seeking for range requests). It returns
+// ErrObjectNotFound if the key doesn't exist.
+func (s *Store) Open(ctx context.Context, key string) (io.ReadSeekCloser, time.Time, error) {
+	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("getting %s: %w", key, err)
+	}
+	// GetObject is lazy; Stat makes the request and tells us if the object exists
+	info, err := obj.Stat()
+	if err != nil {
+		obj.Close()
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return nil, time.Time{}, ErrObjectNotFound
+		}
+		return nil, time.Time{}, fmt.Errorf("stat %s: %w", key, err)
+	}
+	return obj, info.LastModified, nil
+}
+
+var ErrObjectNotFound = errors.New("object not found")
 
 // PresignedURL lets a client download/stream the file straight from minio,
 // with range requests, without going through the API server.

@@ -6,10 +6,11 @@ import (
 	"io/fs"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/glgaspar/minusOne/processor"
 )
 
 type renderer struct {
@@ -18,10 +19,7 @@ type renderer struct {
 }
 
 var templateFuncs = template.FuncMap{
-	"videoID": func(canonicalURL string) string {
-		_, id, _ := strings.Cut(canonicalURL, "v=")
-		return id
-	},
+	"videoID": processor.VideoID,
 	"inProgress": func(status string) bool {
 		return status == "pending" || status == "processing"
 	},

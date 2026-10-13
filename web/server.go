@@ -60,6 +60,13 @@ func (s *Server) routes() {
 	app.GET("/songs/:id/row", s.songRow)
 	app.POST("/songs/:id/retry", s.retrySong)
 	app.DELETE("/songs/:id", s.deleteSong)
+	app.GET("/songs/:id/audio/:track", s.songAudio)
+
+	app.GET("/player", s.playerPage)
+	app.GET("/player/current", s.playerCurrent)
+	app.GET("/queue", s.queueList)
+	app.POST("/queue", s.addToQueue)
+	app.DELETE("/queue/:id", s.removeFromQueue)
 }
 
 // Run serves on addr until ctx is cancelled, then gives in-flight requests

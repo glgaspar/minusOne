@@ -84,7 +84,7 @@ func (s *Song) Download(ctx context.Context, store *Store) error {
 	}
 
 	s.OriginalKey = OriginalKey(s.ID, s.Extension)
-	return store.Put(ctx, s.OriginalKey, file, stat.Size(), audioContentType(s.Extension))
+	return store.Put(ctx, s.OriginalKey, file, stat.Size(), AudioContentType(s.Extension))
 }
 
 func lastLine(s string) string {
@@ -92,9 +92,9 @@ func lastLine(s string) string {
 	return strings.TrimSpace(lines[len(lines)-1])
 }
 
-// audioContentType covers what yt-dlp's bestaudio returns; mime.TypeByExtension
+// AudioContentType covers what yt-dlp's bestaudio returns; mime.TypeByExtension
 // depends on the system's mime database and calls .webm video.
-func audioContentType(ext string) string {
+func AudioContentType(ext string) string {
 	switch ext {
 	case ".webm":
 		return "audio/webm"
@@ -143,7 +143,7 @@ func uploadTrack(ctx context.Context, store *Store, songID string, t *Track) err
 	}
 	t.Size = info.Size()
 	t.Key = TrackKey(songID, t.Type, t.Extension)
-	return store.Put(ctx, t.Key, file, t.Size, audioContentType(t.Extension))
+	return store.Put(ctx, t.Key, file, t.Size, AudioContentType(t.Extension))
 }
 
 // SaveToDatabase records the uploaded tracks.

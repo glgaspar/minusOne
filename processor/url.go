@@ -53,3 +53,9 @@ func CanonicalURL(raw string) (string, error) {
 	}
 	return "https://www.youtube.com/watch?v=" + id, nil
 }
+
+// VideoID returns the id of a URL produced by CanonicalURL.
+func VideoID(canonicalURL string) string {
+	_, id, _ := strings.Cut(canonicalURL, "v=")
+	return id
+}

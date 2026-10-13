@@ -23,6 +23,10 @@
   </div>
   <span class="badge badge-{{.Status}}">{{statusLabel .Status}}</span>
   <div class="song-actions">
+    {{if eq .Status "done"}}
+    <button type="button" class="small" title="Add to the play queue"
+            hx-post="/queue" hx-vals='{"song_id": "{{.ID}}"}' hx-swap="none">+ Queue</button>
+    {{end}}
     {{if eq .Status "failed"}}
     <button type="button" class="small"
             hx-post="/songs/{{.ID}}/retry" hx-target="closest li" hx-swap="outerHTML">Retry</button>
