@@ -1,8 +1,8 @@
-{{/* queue-list renders []db.QueueItem; the first item is the one playing. */}}
+{{/* queue-list renders a queueList; the first item is the one playing. */}}
 {{define "queue-list"}}
-{{if .}}
+{{if .Items}}
 <ol class="queue-items">
-  {{range $i, $item := .}}
+  {{range $i, $item := .Items}}
   <li class="queue-item{{if eq $i 0}} is-current{{end}}">
     <img class="queue-thumb" src="https://i.ytimg.com/vi/{{videoID $item.Song.SourceURL}}/mqdefault.jpg" alt="" loading="lazy">
     <div class="queue-info">
@@ -11,10 +11,12 @@
         {{if eq $i 0}}Now playing{{else if eq $i 1}}Up next{{else}}Later{{end}}{{with $item.AddedBy}} · {{.}}{{end}}
       </div>
     </div>
+    {{if or (ne $i 0) $.CanSkip}}
     <button type="button" class="icon-link icon-delete"
             title="{{if eq $i 0}}Skip{{else}}Remove from queue{{end}}"
             aria-label="{{if eq $i 0}}Skip{{else}}Remove from queue{{end}}"
             hx-delete="/queue/{{$item.ID}}" hx-target="#queue-list" hx-swap="innerHTML">✕</button>
+    {{end}}
   </li>
   {{end}}
 </ol>

@@ -64,10 +64,34 @@ func (d *DB) ListQueue(ctx context.Context) ([]QueueItem, error) {
 
 // RemoveFromQueue deletes an item. Removing one that's already gone is not an
 // error: two devices finishing or skipping the same song is expected.
-func (d *DB) RemoveFromQueue(ctx context.Context, itemID string) error {
-	_, err := d.pool.Exec(ctx, `DELETE FROM queue_items WHERE id = $1`, itemID)
-	if err != nil && !isInvalidUUID(err) {
+// The song playing can only be removed by the device that owns the player, or
+// by anyone while nobody is playing (ErrNotOwner).
+func (d *DB) RemoveFromQueue(ctx context.Context, itemID, deviceID string) error {
+	tag, err := d.pool.Exec(ctx, `
+		DELETE FROM queue_items q
+		WHERE q.id = $1 AND (
+			q.position > (SELECT min(position) FROM queue_items)
+			OR NOT EXISTS (
+				SELECT 1 FROM queue_owner o
+				WHERE o.lease_until > now() AND o.device_id IS DISTINCT FROM $2
+			)
+		)`, itemID, deviceID)
+	if isInvalidUUID(err) {
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("removing queue item %s: %w", itemID, err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+
+	var exists bool
+	if err := d.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM queue_items WHERE id = $1)`, itemID).Scan(&exists); err != nil {
+		return fmt.Errorf("checking queue item %s: %w", itemID, err)
+	}
+	if exists {
+		return ErrNotOwner
 	}
 	return nil
 }

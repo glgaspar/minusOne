@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path"
@@ -40,7 +41,15 @@ func trackLabel(trackType string) string {
 
 type playerPage struct {
 	page
-	Queue []db.QueueItem
+	Queue queueList
+}
+
+// queueList is what the queue partial renders.
+type queueList struct {
+	Items []db.QueueItem
+	// CanSkip is whether the viewer may remove the song playing: only the
+	// device that owns the player can, or anyone while nobody is playing.
+	CanSkip bool
 }
 
 // playerSong is what player.js needs to play the song at the head of the queue.
@@ -63,7 +72,7 @@ type playerTrack struct {
 }
 
 func (s *Server) playerPage(c echo.Context) error {
-	queue, err := s.db.ListQueue(c.Request().Context())
+	queue, err := s.loadQueueList(c)
 	if err != nil {
 		return err
 	}
@@ -74,25 +83,39 @@ func (s *Server) playerPage(c echo.Context) error {
 }
 
 // playerCurrent returns the song at the head of the queue as JSON, or 204 if
-// the queue is empty. player.js polls it, so a skip or a new song from another
-// device reaches the player on its own.
+// the queue is empty.
 func (s *Server) playerCurrent(c echo.Context) error {
-	ctx := c.Request().Context()
-	queue, err := s.db.ListQueue(ctx)
+	song, err := s.currentSong(c.Request().Context())
 	if err != nil {
 		return err
 	}
-	if len(queue) == 0 {
+	if song == nil {
 		return c.NoContent(http.StatusNoContent)
+	}
+	return c.JSON(http.StatusOK, song)
+}
+
+// currentSong returns what player.js needs to play the song at the head of
+// the queue, or nil if the queue is empty.
+func (s *Server) currentSong(ctx context.Context) (*playerSong, error) {
+	queue, err := s.db.ListQueue(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(queue) == 0 {
+		return nil, nil
 	}
 	head := queue[0]
 
 	song, err := s.db.GetSong(ctx, head.Song.ID)
+	if errors.Is(err, db.ErrNotFound) {
+		return nil, nil // deleted from the catalog since; the next poll won't see it
+	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	out := playerSong{
+	out := &playerSong{
 		ItemID:  head.ID,
 		SongID:  song.ID,
 		VideoID: processor.VideoID(song.SourceURL),
@@ -127,8 +150,7 @@ func (s *Server) playerCurrent(c echo.Context) error {
 		t.Label = trackLabel(t.Type)
 		t.URL = "/songs/" + song.ID + "/audio/" + t.Type
 	}
-
-	return c.JSON(http.StatusOK, out)
+	return out, nil
 }
 
 // songAudio streams one track of a song from storage. Going through the app
@@ -175,8 +197,21 @@ func (s *Server) songAudio(c echo.Context) error {
 	return nil
 }
 
+func (s *Server) loadQueueList(c echo.Context) (queueList, error) {
+	ctx := c.Request().Context()
+	items, err := s.db.ListQueue(ctx)
+	if err != nil {
+		return queueList{}, err
+	}
+	state, err := s.db.Heartbeat(ctx, deviceID(c), currentUser(c).ID, false, db.PlayerStatus{})
+	if err != nil {
+		return queueList{}, err
+	}
+	return queueList{Items: items, CanSkip: state.IsOwner || !state.Playing}, nil
+}
+
 func (s *Server) queueList(c echo.Context) error {
-	queue, err := s.db.ListQueue(c.Request().Context())
+	queue, err := s.loadQueueList(c)
 	if err != nil {
 		return err
 	}
@@ -201,7 +236,10 @@ func (s *Server) addToQueue(c echo.Context) error {
 // removeFromQueue is used for skipping, finishing and removing songs. It answers
 // with the updated list for htmx; player.js ignores the body.
 func (s *Server) removeFromQueue(c echo.Context) error {
-	if err := s.db.RemoveFromQueue(c.Request().Context(), c.Param("id")); err != nil {
+	err := s.db.RemoveFromQueue(c.Request().Context(), c.Param("id"), deviceID(c))
+	if errors.Is(err, db.ErrNotOwner) {
+		toast(c, "Only the device playing the queue can skip the current song.", true)
+	} else if err != nil {
 		return err
 	}
 	return s.queueList(c)

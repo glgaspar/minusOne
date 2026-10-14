@@ -64,6 +64,11 @@ func (s *Server) routes() {
 
 	app.GET("/player", s.playerPage)
 	app.GET("/player/current", s.playerCurrent)
+	app.POST("/player/heartbeat", s.playerHeartbeat)
+	app.POST("/player/request", s.requestPlayer)
+	app.POST("/player/request/accept", s.acceptRequest)
+	app.POST("/player/request/deny", s.denyRequest)
+	app.POST("/player/release", s.releasePlayer)
 	app.GET("/queue", s.queueList)
 	app.POST("/queue", s.addToQueue)
 	app.DELETE("/queue/:id", s.removeFromQueue)
