@@ -5,8 +5,7 @@
 // they stay sample-accurate with each other; each one goes through its own
 // GainNode for volume and mute.
 //
-// Video: a muted YouTube embed. The audio is the clock; the video follows it
-// and is re-seeked when it drifts.
+// Video and the mixer UI are shared with the practice page (playback.js).
 //
 // The server's queue is the source of truth: the player polls it, so a skip or
 // a new song from any device reaches it on its own.
@@ -17,11 +16,7 @@
 
 const POLL_MS = 3000;
 const TICK_MS = 250;
-const SYNC_TOLERANCE_S = 0.3; // video drift allowed before re-seeking
-const SYNC_COOLDOWN_MS = 2000; // time a re-seek gets to settle before the next one
 const PREFS_KEY = "minusone.mixer";
-
-const $ = (id) => document.getElementById(id);
 
 let audioCtx = null;
 let current = null; // { song, mixer, finishing }
@@ -120,143 +115,6 @@ class Mixer {
     for (const t of this.tracks) t.gain.disconnect();
     this.tracks = [];
   }
-}
-
-// ---------------------------------------------------------------- video
-
-let yt = null;
-let ytReady = false;
-let videoAvailable = true;
-let lastVideoSeek = 0;
-
-window.onYouTubeIframeAPIReady = () => {
-  yt = new YT.Player("yt-player", {
-    width: "100%",
-    height: "100%",
-    playerVars: {
-      controls: 0,
-      disablekb: 1,
-      fs: 0,
-      iv_load_policy: 3,
-      playsinline: 1,
-      rel: 0,
-      mute: 1,
-      origin: location.origin,
-    },
-    events: {
-      onReady: () => {
-        ytReady = true;
-        yt.mute();
-        if (current) cueVideo(current.song.videoId);
-      },
-      // 101/150: the owner doesn't allow embedding; 100: removed. The audio
-      // doesn't depend on the video, so show the thumbnail and carry on.
-      onError: () => {
-        videoAvailable = false;
-        showCover(true);
-      },
-    },
-  });
-};
-
-function loadYouTubeAPI() {
-  const script = document.createElement("script");
-  script.src = "https://www.youtube.com/iframe_api";
-  document.head.append(script);
-}
-
-function cueVideo(videoId) {
-  videoAvailable = true;
-  $("cover").src = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-  showCover(false);
-  if (ytReady) yt.cueVideoById(videoId);
-}
-
-function showCover(show) {
-  $("cover").hidden = !show;
-}
-
-function syncVideo(audioTime, playing) {
-  if (!ytReady || !videoAvailable) return;
-  const state = yt.getPlayerState();
-  if (!playing) {
-    if (state === YT.PlayerState.PLAYING) yt.pauseVideo();
-    return;
-  }
-  // past the video's end (or the video is shorter): let it rest
-  if (state === YT.PlayerState.ENDED || audioTime >= yt.getDuration() - 0.5) return;
-  if (state !== YT.PlayerState.PLAYING && state !== YT.PlayerState.BUFFERING) yt.playVideo();
-
-  const now = performance.now();
-  if (now - lastVideoSeek > SYNC_COOLDOWN_MS && Math.abs(yt.getCurrentTime() - audioTime) > SYNC_TOLERANCE_S) {
-    yt.seekTo(audioTime, true);
-    lastVideoSeek = now;
-  }
-}
-
-// ---------------------------------------------------------------- mixer prefs
-
-// The original's preference depends on whether the song has split tracks:
-// alone it's the only sound, next to the stems it would double them.
-function prefKey(track, hasStems) {
-  if (track.type !== "original") return track.type;
-  return hasStems ? "original:with-tracks" : "original:alone";
-}
-
-function loadPrefs() {
-  try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function savePref(key, pref) {
-  try {
-    const prefs = loadPrefs();
-    prefs[key] = pref;
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch {}
-}
-
-function buildMixer(song, mixer) {
-  const box = $("mixer");
-  box.replaceChildren();
-  const prefs = loadPrefs();
-  const hasStems = song.tracks.some((t) => t.type !== "original");
-
-  for (const track of mixer.tracks) {
-    const key = prefKey(track, hasStems);
-    const pref = { volume: 1, muted: track.muted, ...prefs[key] };
-
-    const row = $("track-template").content.firstElementChild.cloneNode(true);
-    const muteButton = row.querySelector(".track-mute");
-    const volume = row.querySelector(".track-volume");
-    row.querySelector(".track-label").textContent = track.label;
-    volume.value = pref.volume;
-    volume.setAttribute("aria-label", `${track.label} volume`);
-
-    const apply = (immediate) => {
-      mixer.setGain(track, pref.muted ? 0 : pref.volume, immediate);
-      muteButton.setAttribute("aria-pressed", String(pref.muted));
-      muteButton.textContent = pref.muted ? "Unmute" : "Mute";
-      row.classList.toggle("is-muted", pref.muted);
-    };
-    muteButton.addEventListener("click", () => {
-      pref.muted = !pref.muted;
-      apply();
-      savePref(key, pref);
-    });
-    volume.addEventListener("input", () => {
-      pref.volume = Number(volume.value);
-      apply();
-      savePref(key, pref);
-    });
-
-    apply(true);
-    box.append(row);
-  }
-  box.hidden = false;
 }
 
 // ---------------------------------------------------------------- queue
@@ -366,7 +224,7 @@ async function loadSong(song, resume) {
   }
 
   current.mixer = mixer;
-  buildMixer(song, mixer);
+  buildMixer(song, mixer, PREFS_KEY);
   hideMessage();
   setControlsEnabled(true);
   $("seek").max = mixer.duration;
@@ -478,11 +336,6 @@ async function post(url) {
 }
 
 // ---------------------------------------------------------------- UI
-
-function formatTime(seconds) {
-  const s = Math.floor(seconds);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
 
 function updateTime(time, duration) {
   $("time-current").textContent = formatTime(time);

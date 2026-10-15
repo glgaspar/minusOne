@@ -52,9 +52,10 @@ type queueList struct {
 	CanSkip bool
 }
 
-// playerSong is what player.js needs to play the song at the head of the queue.
+// playerSong is what player.js needs to play the song at the head of the queue,
+// and practice.js to play any song.
 type playerSong struct {
-	ItemID  string        `json:"itemId"`
+	ItemID  string        `json:"itemId,omitempty"`
 	SongID  string        `json:"songId"`
 	Title   string        `json:"title"`
 	Author  string        `json:"author"`
@@ -101,9 +102,14 @@ func (s *Server) currentSong(ctx context.Context) (*playerSong, error) {
 	if err != nil {
 		return nil, err
 	}
+	out := newPlayerSong(song)
+	out.ItemID = head.ID
+	return out, nil
+}
 
+// newPlayerSong lists a song's tracks in mixer order, with the URLs to fetch them.
+func newPlayerSong(song *db.Song) *playerSong {
 	out := &playerSong{
-		ItemID:  head.ID,
 		SongID:  song.ID,
 		VideoID: processor.VideoID(song.SourceURL),
 	}
@@ -137,7 +143,7 @@ func (s *Server) currentSong(ctx context.Context) (*playerSong, error) {
 		t.Label = trackLabel(t.Type)
 		t.URL = "/songs/" + song.ID + "/audio/" + t.Type
 	}
-	return out, nil
+	return out
 }
 
 // songAudio streams one track of a song from storage. Going through the app

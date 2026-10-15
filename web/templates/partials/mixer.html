@@ -1,0 +1,10 @@
+{{/* track-template is one mixer row; playback.js buildMixer clones it per track. */}}
+{{define "track-template"}}
+<template id="track-template">
+  <div class="track">
+    <span class="track-label"></span>
+    <button type="button" class="track-mute small" aria-pressed="false">Mute</button>
+    <input type="range" class="track-volume" min="0" max="1" step="0.01">
+  </div>
+</template>
+{{end}}

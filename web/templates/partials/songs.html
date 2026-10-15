@@ -26,6 +26,7 @@
     {{if eq .Status "done"}}
     <button type="button" class="small" title="Add to the play queue"
             hx-post="/queue" hx-vals='{"song_id": "{{.ID}}"}' hx-swap="none">+ Queue</button>
+    <a class="button small" href="/practice/{{.ID}}" title="Play it on this device, with tools for learning it">Practice</a>
     {{end}}
     {{if eq .Status "failed"}}
     <button type="button" class="small"

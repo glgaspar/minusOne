@@ -155,6 +155,13 @@ button.link:hover { text-decoration: underline; }
 .icon-link:hover { color: var(--accent); background: var(--bg); }
 .icon-delete:hover { color: var(--error); }
 button.small { padding: 4px 10px; font-size: 0.85rem; }
+/* a link that looks like a button */
+a.button {
+  display: inline-block; padding: 9px 16px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none;
+}
+a.button:hover { border-color: var(--muted); }
+a.button.small { padding: 4px 10px; font-size: 0.85rem; }
 
 .badge { font-size: 0.75rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .badge-pending { background: var(--badge-pending-bg); color: var(--badge-pending); }
@@ -213,6 +220,11 @@ input[type="range"] { width: 100%; padding: 0; border: 0; background: none; acce
 input[type="range"]:focus { outline-offset: 2px; }
 
 .mixer { padding: 4px 16px; }
+
+/* practice */
+.practice-page { max-width: 960px; margin: 0 auto; }
+.back-link { display: inline-block; margin-bottom: 10px; text-decoration: none; }
+.back-link:hover { color: var(--accent); }
 
 /* only the device that owns the player plays; the others watch it */
 .player.is-watching .transport, .player.is-watching .mixer, .player.is-watching .request-banner { display: none; }
