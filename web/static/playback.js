@@ -9,9 +9,11 @@ const SYNC_COOLDOWN_MS = 2000; // time a re-seek gets to settle before the next 
 
 const $ = (id) => document.getElementById(id);
 
-function formatTime(seconds) {
+// formatTime shows m:ss, or m:ss.t with tenths.
+function formatTime(seconds, tenths = false) {
   const s = Math.floor(seconds);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const text = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return tenths ? `${text}.${Math.floor((seconds - s) * 10)}` : text;
 }
 
 // ---------------------------------------------------------------- video

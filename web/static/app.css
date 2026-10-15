@@ -225,6 +225,13 @@ input[type="range"]:focus { outline-offset: 2px; }
 .practice-page { max-width: 960px; margin: 0 auto; }
 .back-link { display: inline-block; margin-bottom: 10px; text-decoration: none; }
 .back-link:hover { color: var(--accent); }
+.tools { padding: 12px 16px; margin-bottom: 16px; }
+.tools[hidden] { display: none; }
+.waveform { display: block; width: 100%; height: 96px; cursor: pointer; touch-action: none; }
+.tool-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.tool-push { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+button.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+select { font: inherit; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 
 /* only the device that owns the player plays; the others watch it */
 .player.is-watching .transport, .player.is-watching .mixer, .player.is-watching .request-banner { display: none; }

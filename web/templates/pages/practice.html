@@ -25,6 +25,25 @@
       <span class="time" id="time-total">0:00</span>
     </div>
 
+    <div class="tools card" id="tools" hidden>
+      <canvas id="waveform" class="waveform" aria-label="Waveform: click to seek, drag to pick a loop"></canvas>
+      <div class="tool-row">
+        <button type="button" class="small" id="set-a" title="Start the loop here">Set A</button>
+        <button type="button" class="small" id="set-b" title="End the loop here">Set B</button>
+        <button type="button" class="small toggle" id="loop-toggle" aria-pressed="false">Loop</button>
+        <span class="muted small" id="loop-range">No loop</span>
+        <button type="button" class="link small" id="loop-clear" hidden>Clear</button>
+        <label class="small tool-push">Count-in
+          <select id="count-in">
+            <option value="0">Off</option>
+            <option value="1">1 s</option>
+            <option value="2">2 s</option>
+            <option value="3">3 s</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
     <div class="mixer card" id="mixer" aria-label="Tracks" hidden></div>
   </div>
 </section>
