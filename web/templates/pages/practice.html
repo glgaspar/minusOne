@@ -45,6 +45,14 @@
           </select>
         </label>
       </div>
+      <div class="tool-row">
+        <label class="small slider-field" for="speed">Speed <output id="speed-value">100%</output></label>
+        <input type="range" id="speed" min="50" max="120" step="5" value="100" aria-label="Speed">
+        <button type="button" class="link small" id="speed-reset" hidden>Reset</button>
+        <label class="small slider-field" for="key">Key <output id="key-value">0</output></label>
+        <input type="range" id="key" min="-6" max="6" step="1" value="0" aria-label="Key, in semitones">
+        <button type="button" class="link small" id="key-reset" hidden>Reset</button>
+      </div>
     </div>
 
     <div class="presets" id="presets" hidden>
@@ -66,6 +74,8 @@
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Start / end the loop here</dd>
       <dt><kbd>L</kbd></dt><dd>Loop on / off</dd>
       <dt><kbd>Esc</kbd></dt><dd>Clear the loop</dd>
+      <dt><kbd>-</kbd> <kbd>=</kbd></dt><dd>Slower / faster</dd>
+      <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Key down / up</dd>
       <dt><kbd>?</kbd></dt><dd>This list</dd>
     </dl>
     <div class="actions"><button type="button" data-close-dialog>Close</button></div>

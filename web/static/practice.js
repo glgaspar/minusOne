@@ -6,7 +6,8 @@
 // of its own output into a GainNode here, for volume and mute.
 //
 // Learning tools: an A–B loop picked on the song's waveform, a count-in
-// before playing and before every repeat, mixer presets and solo. They are saved per song on this
+// before playing and before every repeat, mixer presets and solo, and slowing
+// down or changing the key (the worklet does that with SoundTouch). They are saved per song on this
 // device. Most things have a keyboard shortcut (the "?" dialog lists them).
 
 const SYNC_MS = 250;
@@ -14,6 +15,8 @@ const PREFS_KEY = "minusone.practice";
 const PEAK_BUCKETS = 2000;
 const MIN_LOOP_S = 0.5;
 const NUDGE_S = 5;
+const SPEEDS = { min: 50, max: 120, step: 5 }; // percent
+const KEYS = { min: -6, max: 6 }; // semitones
 const FINE_NUDGE_S = 1;
 
 // Mixer presets: whether each track type is muted. The original is the whole
@@ -47,6 +50,8 @@ class Engine {
     this.playing = false;
     this.loop = null; // { a, b } while looping, in seconds
     this.countIn = 0;
+    this.tempo = 1; // song seconds per second
+    this.semitones = 0;
     this.seq = 0;
     this.onEnded = () => {};
     node.port.onmessage = (e) => this.receive(e.data);
@@ -92,7 +97,8 @@ class Engine {
       right: b.numberOfChannels > 1 ? b.getChannelData(1).slice() : null,
     }));
     const transfer = samples.flatMap((s) => (s.right ? [s.left.buffer, s.right.buffer] : [s.left.buffer]));
-    engine.send({ type: "load", tracks: samples }, transfer);
+    // the worklet's stretch follows the whole mix, so every track is cut the same way
+    engine.send({ type: "load", tracks: samples, guide: Math.max(original, 0) }, transfer);
     return engine;
   }
 
@@ -119,7 +125,7 @@ class Engine {
 
   time() {
     if (!this.playing) return this.position;
-    const elapsed = Math.max(this.ctx.currentTime - this.reportedAt - this.counting, 0);
+    const elapsed = Math.max(this.ctx.currentTime - this.reportedAt - this.counting, 0) * this.tempo;
     // the worklet wraps the loop; until its report arrives, wait at the end
     const end = this.loop && this.position < this.loop.b ? this.loop.b : this.duration;
     return Math.min(this.position + elapsed, end);
@@ -158,6 +164,16 @@ class Engine {
     this.send({ type: "countIn", seconds });
   }
 
+  // setStretch changes the speed (1 is normal) and the key, in semitones.
+  setStretch(tempo, semitones) {
+    this.position = this.time();
+    this.reportedAt = this.ctx.currentTime;
+    this.counting = 0;
+    this.tempo = tempo;
+    this.semitones = semitones;
+    this.send({ type: "stretch", tempo, semitones });
+  }
+
   setGain(track, value, immediate = false) {
     if (immediate) track.gain.gain.value = value;
     else track.gain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.02);
@@ -194,7 +210,7 @@ function computePeaks(buffers) {
 // Settings are per song, on this device: the loop and the count-in you were
 // practicing with are there the next time.
 function loadSettings() {
-  const defaults = { loop: null, looping: false, countIn: 0 };
+  const defaults = { loop: null, looping: false, countIn: 0, speed: 100, key: 0 };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(`${PREFS_KEY}.${song.songId}`)) };
   } catch {
@@ -252,6 +268,31 @@ function setCountIn(seconds) {
   saveSettings();
   engine.setCountIn(seconds);
   $("count-in").value = String(seconds);
+}
+
+// ---------------------------------------------------------------- speed and key
+
+// setStretch changes the speed (percent) and key (semitones), within limits.
+function setStretch(speed, key) {
+  settings.speed = Math.min(Math.max(speed, SPEEDS.min), SPEEDS.max);
+  settings.key = Math.min(Math.max(key, KEYS.min), KEYS.max);
+  saveSettings();
+  if (engine.tempo !== settings.speed / 100 || engine.semitones !== settings.key) {
+    engine.setStretch(settings.speed / 100, settings.key);
+    lastVideoSeek = 0;
+  }
+  $("speed").value = settings.speed;
+  $("key").value = settings.key;
+  updateStretchLabels();
+}
+
+function updateStretchLabels() {
+  const speed = Number($("speed").value);
+  const key = Number($("key").value);
+  $("speed-value").textContent = `${speed}%`;
+  $("key-value").textContent = key > 0 ? `+${key}` : String(key);
+  $("speed-reset").hidden = speed === 100;
+  $("key-reset").hidden = key === 0;
 }
 
 // ---------------------------------------------------------------- waveform
@@ -412,8 +453,9 @@ async function start() {
   setControlsEnabled(true);
   setCountIn(settings.countIn);
   setLoop(settings.loop);
+  setStretch(settings.speed, settings.key);
   requestAnimationFrame(frame);
-  setInterval(() => syncVideo(engine.time(), engine.playing && !engine.isCounting()), SYNC_MS);
+  setInterval(() => syncVideo(engine.time(), engine.playing && !engine.isCounting(), engine.tempo), SYNC_MS);
 }
 
 function frame() {
@@ -484,6 +526,13 @@ $("set-b").addEventListener("click", setB);
 $("loop-toggle").addEventListener("click", toggleLoop);
 $("loop-clear").addEventListener("click", () => setLoop(null));
 $("count-in").addEventListener("change", () => setCountIn(Number($("count-in").value)));
+// the labels follow the sliders; the audio changes when they're let go
+$("speed").addEventListener("input", updateStretchLabels);
+$("key").addEventListener("input", updateStretchLabels);
+$("speed").addEventListener("change", () => setStretch(Number($("speed").value), settings.key));
+$("key").addEventListener("change", () => setStretch(settings.speed, Number($("key").value)));
+$("speed-reset").addEventListener("click", () => setStretch(100, settings.key));
+$("key-reset").addEventListener("click", () => setStretch(settings.speed, 0));
 
 // ---------------------------------------------------------------- shortcuts
 
@@ -496,6 +545,11 @@ const shortcuts = {
   l: toggleLoop,
   L: toggleLoop,
   Escape: () => setLoop(null),
+  "-": () => setStretch(settings.speed - SPEEDS.step, settings.key),
+  "=": () => setStretch(settings.speed + SPEEDS.step, settings.key),
+  "+": () => setStretch(settings.speed + SPEEDS.step, settings.key),
+  ",": () => setStretch(settings.speed, settings.key - 1),
+  ".": () => setStretch(settings.speed, settings.key + 1),
   "?": () => $("shortcuts").showModal(),
 };
 

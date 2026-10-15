@@ -9,20 +9,39 @@
 //
 // The count-in is silence with a click every second, on its own output after
 // the tracks', before playing from a stop and before every repeat of the loop.
+//
+// Speed and key go through SoundTouch (vendor/soundtouch.js, soundtouchjs
+// 0.3.0): a resampler for the key and a time-stretch for the speed, per track.
+// See StretchGroup for how the tracks stay aligned.
+
+import { AbstractFifoSamplePipe, RateTransposer, Stretch } from "./vendor/soundtouch.js";
 
 const REPORT_EVERY_S = 0.05;
 const CLICK_S = 0.03;
+const FEED_FRAMES = 1024;
 
 class PracticeEngine extends AudioWorkletProcessor {
   constructor() {
     super();
     this.tracks = []; // [{ left, right }] Float32Arrays; right is null for mono
+    this.guide = null; // { left, right }: the whole mix, which the stretch follows
     this.length = 0; // in frames
-    this.pos = 0; // the next source frame to play
     this.playing = false;
     this.loop = null; // { a, b } in frames, while looping
     this.countIn = 0; // frames of count-in
     this.counting = 0; // frames of count-in left
+    this.tempo = 1;
+    this.semitones = 0;
+
+    // Without a stretch, pos is the next frame to play. With one, the output
+    // since the last restart started at start, and each output frame is tempo
+    // source frames, so the position is start + emitted * tempo.
+    this.pos = 0;
+    this.stretch = null; // a StretchGroup when speed or key are changed
+    this.start = 0;
+    this.emitted = 0;
+    this.fed = 0; // the next source frame to feed the stretch
+
     this.seq = 0; // the page's last command, echoed so it can drop stale reports
     this.lastReport = -Infinity;
     this.port.onmessage = (e) => this.command(e.data);
@@ -33,11 +52,12 @@ class PracticeEngine extends AudioWorkletProcessor {
     switch (m.type) {
       case "load":
         this.tracks = m.tracks;
+        this.guide = m.tracks[m.guide];
         this.length = Math.max(0, ...m.tracks.map((t) => t.left.length));
-        this.pos = 0;
+        this.restart(0);
         break;
       case "play":
-        if (this.pos >= this.length) this.pos = 0;
+        if (this.position() >= this.length) this.restart(0);
         this.playing = this.length > 0;
         this.counting = this.countIn;
         break;
@@ -46,7 +66,7 @@ class PracticeEngine extends AudioWorkletProcessor {
         this.counting = 0;
         break;
       case "seek":
-        this.pos = Math.min(Math.max(Math.round(m.position * sampleRate), 0), this.length);
+        this.restart(Math.min(Math.max(Math.round(m.position * sampleRate), 0), this.length));
         break;
       case "loop": {
         const a = Math.round(m.a * sampleRate);
@@ -57,8 +77,31 @@ class PracticeEngine extends AudioWorkletProcessor {
       case "countIn":
         this.countIn = Math.round(m.seconds * sampleRate);
         break;
+      case "stretch": {
+        const pos = this.position();
+        this.tempo = m.tempo;
+        this.semitones = m.semitones;
+        const changed = m.tempo !== 1 || m.semitones !== 0;
+        this.stretch = changed ? new StretchGroup(this.tracks.length, m.tempo, m.semitones) : null;
+        this.restart(pos);
+        break;
+      }
     }
     this.report(currentTime);
+  }
+
+  position() {
+    if (!this.stretch) return this.pos;
+    return Math.min(this.start + Math.round(this.emitted * this.tempo), this.length);
+  }
+
+  // restart continues from frame, dropping what the stretch has buffered.
+  restart(frame) {
+    this.pos = frame;
+    this.start = frame;
+    this.fed = frame;
+    this.emitted = 0;
+    this.stretch?.clear();
   }
 
   report(time) {
@@ -66,7 +109,7 @@ class PracticeEngine extends AudioWorkletProcessor {
     this.port.postMessage({
       type: "state",
       seq: this.seq,
-      position: this.pos / sampleRate,
+      position: this.position() / sampleRate,
       playing: this.playing,
       counting: this.counting / sampleRate,
       time,
@@ -88,20 +131,14 @@ class PracticeEngine extends AudioWorkletProcessor {
       }
 
       // play up to the end of the loop, if we're inside it, or of the song
-      const looping = this.loop && this.pos < this.loop.b;
+      const pos = this.position();
+      const looping = this.loop && pos < this.loop.b;
       const end = looping ? this.loop.b : this.length;
-      const n = Math.min(frames - o, end - this.pos);
-      for (let t = 0; t < this.tracks.length; t++) {
-        const { left, right } = this.tracks[t];
-        outputs[t][0].set(left.subarray(this.pos, this.pos + n), o);
-        outputs[t][1].set((right ?? left).subarray(this.pos, this.pos + n), o);
-      }
-      this.pos += n;
-      o += n;
+      o += this.stretch ? this.renderStretched(outputs, o, frames - o, end - pos) : this.render(outputs, o, frames - o, end - pos);
 
-      if (this.pos < end) continue;
+      if (this.position() < end) continue;
       if (looping) {
-        this.pos = this.loop.a;
+        this.restart(this.loop.a);
         this.counting = this.countIn;
         this.lastReport = -Infinity; // report the jump right away
       } else {
@@ -115,6 +152,32 @@ class PracticeEngine extends AudioWorkletProcessor {
     return true;
   }
 
+  // render copies up to want frames, at most the remaining frames, straight
+  // from the tracks. It returns how many it wrote.
+  render(outputs, o, want, remaining) {
+    const n = Math.min(want, remaining);
+    for (let t = 0; t < this.tracks.length; t++) {
+      const { left, right } = this.tracks[t];
+      outputs[t][0].set(left.subarray(this.pos, this.pos + n), o);
+      outputs[t][1].set((right ?? left).subarray(this.pos, this.pos + n), o);
+    }
+    this.pos += n;
+    return n;
+  }
+
+  // renderStretched is render through the stretch: it feeds it until it has
+  // enough output, past the end of the song with silence.
+  renderStretched(outputs, o, want, remaining) {
+    const n = Math.min(want, Math.ceil(remaining / this.tempo));
+    while (this.stretch.available() < n) {
+      this.stretch.feed(this.tracks, this.guide, this.fed, FEED_FRAMES);
+      this.fed += FEED_FRAMES;
+    }
+    this.stretch.receive(outputs, o, n);
+    this.emitted += n;
+    return n;
+  }
+
   // click writes n frames of the count-in from offset o: a short beep at the
   // start of every second.
   click(out, o, n) {
@@ -125,6 +188,124 @@ class PracticeEngine extends AudioWorkletProcessor {
       const v = 0.4 * Math.sin(2 * Math.PI * 1500 * t) * (1 - t / CLICK_S);
       out[0][o + i] = v;
       out[1][o + i] = v;
+    }
+  }
+}
+
+// StretchGroup changes the speed and key of every track the same way.
+//
+// SoundTouch's time-stretch cuts the audio into pieces and overlaps each one
+// where it best matches the previous, which depends on the audio. Stretching
+// each track on its own would pick different cuts per track and smear them
+// against each other. So one more chain, the guide, gets the whole mix and
+// picks the cuts, and every track makes the same ones (linkedStretch).
+//
+// Each chain mirrors SoundTouch's: the resampler moves the key, the stretch
+// fixes the length, and the resampler goes first unless it's raising the pitch.
+class StretchGroup {
+  constructor(tracks, tempo, semitones) {
+    const pitch = 2 ** (semitones / 12);
+    this.rate = pitch;
+    this.stretchTempo = tempo / pitch;
+    this.chains = Array.from({ length: tracks + 1 }, () => this.chain()); // the last is the guide
+    this.scratch = this.chains.map(() => new Float32Array(FEED_FRAMES * 2));
+  }
+
+  chain() {
+    // AbstractFifoSamplePipe(true) is the way to get the library's FIFOs
+    const ends = new AbstractFifoSamplePipe(true); // its input and output buffers
+    const middle = new AbstractFifoSamplePipe(true).inputBuffer;
+    const transposer = new RateTransposer(false);
+    const stretch = new Stretch(false);
+    stretch.setParameters(sampleRate, 0, 0, 8); // its default assumes 44.1 kHz
+    stretch.tempo = this.stretchTempo;
+    transposer.rate = this.rate;
+    const [first, second] = this.rate > 1 ? [stretch, transposer] : [transposer, stretch];
+    first.inputBuffer = ends.inputBuffer;
+    first.outputBuffer = middle;
+    second.inputBuffer = middle;
+    second.outputBuffer = ends.outputBuffer;
+    return { input: ends.inputBuffer, output: ends.outputBuffer, transposer, stretch };
+  }
+
+  // feed adds n source frames from frame on, interleaved, to every chain.
+  feed(tracks, guide, frame, n) {
+    const sources = [...tracks, guide];
+    for (let c = 0; c < this.chains.length; c++) {
+      const { left, right } = sources[c];
+      const buf = this.scratch[c];
+      for (let i = 0; i < n; i++) {
+        buf[2 * i] = left[frame + i] ?? 0;
+        buf[2 * i + 1] = (right ?? left)[frame + i] ?? 0;
+      }
+      this.chains[c].input.putSamples(buf, 0, n);
+    }
+    const stretches = this.chains.map((c) => c.stretch);
+    if (this.rate > 1) {
+      linkedStretch(stretches);
+      for (const c of this.chains) c.transposer.process();
+    } else {
+      for (const c of this.chains) c.transposer.process();
+      linkedStretch(stretches);
+    }
+  }
+
+  // available is how many output frames are ready; every chain has the same.
+  available() {
+    return this.chains[0].output.frameCount;
+  }
+
+  // receive writes n output frames of each track from offset o, and drops the guide's.
+  receive(outputs, o, n) {
+    for (let c = 0; c < this.chains.length; c++) {
+      const out = this.chains[c].output;
+      if (c < this.chains.length - 1) {
+        const v = out.vector;
+        const from = out.startIndex;
+        const [l, r] = outputs[c];
+        for (let i = 0; i < n; i++) {
+          l[o + i] = v[from + 2 * i];
+          r[o + i] = v[from + 2 * i + 1];
+        }
+      }
+      out.receive(n);
+    }
+  }
+
+  clear() {
+    for (const c of this.chains) {
+      c.transposer.clear();
+      c.stretch.clear();
+    }
+  }
+}
+
+// linkedStretch is Stretch.process() run over several stretches at once, with
+// the overlap position found on the last one (the guide) used for all. They
+// get the same number of frames, so they stay in step. It reaches into
+// Stretch's internals, which is why the library version is pinned.
+function linkedStretch(stretches) {
+  for (const s of stretches) {
+    if (s.midBuffer !== null) continue;
+    if (s._inputBuffer.frameCount < s.overlapLength) return;
+    s.midBuffer = new Float32Array(s.overlapLength * 2);
+    s._inputBuffer.receiveSamples(s.midBuffer, s.overlapLength);
+  }
+  const guide = stretches[stretches.length - 1];
+  while (guide._inputBuffer.frameCount >= guide.sampleReq) {
+    const offset = guide.seekBestOverlapPosition();
+    for (const s of stretches) {
+      s._outputBuffer.ensureAdditionalCapacity(s.overlapLength);
+      s.overlap(offset);
+      s._outputBuffer.put(s.overlapLength);
+      const rest = s.seekWindowLength - 2 * s.overlapLength;
+      if (rest > 0) s._outputBuffer.putBuffer(s._inputBuffer, offset + s.overlapLength, rest);
+      const start = s._inputBuffer.startIndex + 2 * (offset + s.seekWindowLength - s.overlapLength);
+      s.midBuffer.set(s._inputBuffer.vector.subarray(start, start + 2 * s.overlapLength));
+      s.skipFract += s.nominalSkip;
+      const skip = Math.floor(s.skipFract);
+      s.skipFract -= skip;
+      s._inputBuffer.receive(skip);
     }
   }
 }

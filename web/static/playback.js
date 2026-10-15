@@ -23,6 +23,7 @@ let ytReady = false;
 let videoAvailable = true;
 let lastVideoSeek = 0;
 let cuedVideoId = null; // cued before the API was ready
+let videoRate = 1;
 
 window.onYouTubeIframeAPIReady = () => {
   yt = new YT.Player("yt-player", {
@@ -72,8 +73,16 @@ function showCover(show) {
   $("cover").hidden = !show;
 }
 
-function syncVideo(audioTime, playing) {
+// syncVideo keeps the video at the audio's time. rate is the audio's speed:
+// the video plays at the closest one YouTube offers, and re-seeks cover the rest.
+function syncVideo(audioTime, playing, rate = 1) {
   if (!ytReady || !videoAvailable) return;
+  if (rate !== videoRate) {
+    const rates = yt.getAvailablePlaybackRates?.() ?? [1];
+    const closest = rates.reduce((a, b) => (Math.abs(b - rate) < Math.abs(a - rate) ? b : a), 1);
+    yt.setPlaybackRate(closest);
+    videoRate = rate;
+  }
   const state = yt.getPlayerState();
   if (!playing) {
     if (state === YT.PlayerState.PLAYING) yt.pauseVideo();

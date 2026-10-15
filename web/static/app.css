@@ -230,6 +230,9 @@ input[type="range"]:focus { outline-offset: 2px; }
 .waveform { display: block; width: 100%; height: 96px; cursor: pointer; touch-action: none; }
 .tool-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .tool-push { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.slider-field { white-space: nowrap; }
+.slider-field output { display: inline-block; min-width: 3.2em; font-variant-numeric: tabular-nums; color: var(--muted); }
+.tool-row input[type="range"] { flex: 1; min-width: 100px; }
 button.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .shortcuts { padding: 20px 24px; }
 .shortcuts h2 { margin: 0 0 12px; font-size: 1.1rem; }
