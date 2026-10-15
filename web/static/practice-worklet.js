@@ -13,12 +13,19 @@
 // Speed and key go through SoundTouch (vendor/soundtouch.js, soundtouchjs
 // 0.3.0): a resampler for the key and a time-stretch for the speed, per track.
 // See StretchGroup for how the tracks stay aligned.
+//
+// Recording: the microphone is this node's input. Each recorded sample is
+// tied to the song position playing in the same block, minus the time the
+// sound takes to reach the speakers and come back through the microphone, so
+// the take lines up with the song. The take plays on the last output, at the
+// speed and key it was recorded at.
 
 import { AbstractFifoSamplePipe, RateTransposer, Stretch } from "./vendor/soundtouch.js";
 
 const REPORT_EVERY_S = 0.05;
 const CLICK_S = 0.03;
 const FEED_FRAMES = 1024;
+const RECORD_CHUNK = 48000; // frames per chunk of a recording
 
 class PracticeEngine extends AudioWorkletProcessor {
   constructor() {
@@ -42,6 +49,10 @@ class PracticeEngine extends AudioWorkletProcessor {
     this.emitted = 0;
     this.fed = 0; // the next source frame to feed the stretch
 
+    this.recording = null; // { chunks, frames, start, latency } while recording
+    this.take = null; // { samples, start, tempo, semitones }; start is a song frame
+    this.takeOffset = 0; // seconds the take plays later than recorded
+
     this.seq = 0; // the page's last command, echoed so it can drop stale reports
     this.lastReport = -Infinity;
     this.port.onmessage = (e) => this.command(e.data);
@@ -64,6 +75,7 @@ class PracticeEngine extends AudioWorkletProcessor {
       case "pause":
         this.playing = false;
         this.counting = 0;
+        this.finishRecording();
         break;
       case "seek":
         this.restart(Math.min(Math.max(Math.round(m.position * sampleRate), 0), this.length));
@@ -78,6 +90,7 @@ class PracticeEngine extends AudioWorkletProcessor {
         this.countIn = Math.round(m.seconds * sampleRate);
         break;
       case "stretch": {
+        this.finishRecording(); // before the take's speed changes
         const pos = this.position();
         this.tempo = m.tempo;
         this.semitones = m.semitones;
@@ -86,6 +99,17 @@ class PracticeEngine extends AudioWorkletProcessor {
         this.restart(pos);
         break;
       }
+      case "record":
+        if (m.on) {
+          this.take = null;
+          this.recording = { chunks: [], frames: 0, start: null, latency: m.latency };
+        } else {
+          this.finishRecording();
+        }
+        break;
+      case "takeOffset":
+        this.takeOffset = m.seconds;
+        break;
     }
     this.report(currentTime);
   }
@@ -95,8 +119,10 @@ class PracticeEngine extends AudioWorkletProcessor {
     return Math.min(this.start + Math.round(this.emitted * this.tempo), this.length);
   }
 
-  // restart continues from frame, dropping what the stretch has buffered.
+  // restart continues from frame, dropping what the stretch has buffered. A
+  // recording ends there: it has to be one continuous take.
   restart(frame) {
+    this.finishRecording();
     this.pos = frame;
     this.start = frame;
     this.fed = frame;
@@ -134,7 +160,10 @@ class PracticeEngine extends AudioWorkletProcessor {
       const pos = this.position();
       const looping = this.loop && pos < this.loop.b;
       const end = looping ? this.loop.b : this.length;
-      o += this.stretch ? this.renderStretched(outputs, o, frames - o, end - pos) : this.render(outputs, o, frames - o, end - pos);
+      const n = this.stretch ? this.renderStretched(outputs, o, frames - o, end - pos) : this.render(outputs, o, frames - o, end - pos);
+      if (this.recording) this.capture(inputs[0], o, n, pos);
+      else if (this.take) this.renderTake(outputs[this.tracks.length + 1], o, n, pos);
+      o += n;
 
       if (this.position() < end) continue;
       if (looping) {
@@ -143,6 +172,7 @@ class PracticeEngine extends AudioWorkletProcessor {
         this.lastReport = -Infinity; // report the jump right away
       } else {
         this.playing = false;
+        this.finishRecording();
         this.port.postMessage({ type: "ended" });
       }
     }
@@ -176,6 +206,54 @@ class PracticeEngine extends AudioWorkletProcessor {
     this.stretch.receive(outputs, o, n);
     this.emitted += n;
     return n;
+  }
+
+  // capture records n input frames from offset o, which were sung over the
+  // song playing from frame pos.
+  capture(input, o, n, pos) {
+    const rec = this.recording;
+    if (rec.start === null) rec.start = pos - rec.latency * sampleRate * this.tempo;
+    for (let i = 0; i < n; i++) {
+      const at = rec.frames % RECORD_CHUNK;
+      if (at === 0) rec.chunks.push(new Float32Array(RECORD_CHUNK));
+      // the first channel; silence if the microphone isn't connected yet
+      rec.chunks[rec.chunks.length - 1][at] = input[0]?.[o + i] ?? 0;
+      rec.frames++;
+    }
+  }
+
+  // finishRecording turns the recording into the take and sends the page a copy.
+  finishRecording() {
+    const rec = this.recording;
+    if (!rec) return;
+    this.recording = null;
+    if (rec.frames === 0) {
+      this.port.postMessage({ type: "take", take: null });
+      return;
+    }
+    const samples = new Float32Array(rec.frames);
+    rec.chunks.forEach((chunk, i) => samples.set(chunk.subarray(0, Math.min(RECORD_CHUNK, rec.frames - i * RECORD_CHUNK)), i * RECORD_CHUNK));
+    this.take = { samples, start: rec.start, tempo: this.tempo, semitones: this.semitones };
+    const copy = samples.slice();
+    this.port.postMessage(
+      { type: "take", take: { samples: copy, start: rec.start / sampleRate, tempo: this.tempo, semitones: this.semitones } },
+      [copy.buffer],
+    );
+  }
+
+  // renderTake writes the take's part of n output frames from offset o, for
+  // the song playing from frame pos. A take only plays at the speed and key
+  // it was recorded at: it is the singer's own timing and pitch.
+  renderTake(out, o, n, pos) {
+    const take = this.take;
+    if (this.tempo !== take.tempo || this.semitones !== take.semitones) return;
+    const first = (pos - take.start) / this.tempo - this.takeOffset * sampleRate;
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(first + i);
+      if (k < 0 || k >= take.samples.length) continue;
+      out[0][o + i] = take.samples[k];
+      out[1][o + i] = take.samples[k];
+    }
   }
 
   // click writes n frames of the count-in from offset o: a short beep at the

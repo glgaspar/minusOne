@@ -8,7 +8,9 @@
 // Learning tools: an A–B loop picked on the song's waveform, a count-in
 // before playing and before every repeat, mixer presets and solo, and slowing
 // down or changing the key (the worklet does that with SoundTouch). Loops can
-// be saved as named sections, which are kept on the server per user. They are saved per song on this
+// be saved as named sections, which are kept on the server per user. And you
+// can record yourself over the song: the take stays on this page (and can be
+// downloaded), it's never uploaded. They are saved per song on this
 // device. Most things have a keyboard shortcut (the "?" dialog lists them).
 
 const SYNC_MS = 250;
@@ -36,6 +38,8 @@ let seeking = false;
 let settings = loadSettings();
 let mixer = null; // buildMixer's controls
 let markers = []; // [{ id, label, start, end }], in song order
+let recording = null; // { stream, source } while recording
+let take = null; // { samples, start, tempo, semitones, url } of the last recording
 
 // ---------------------------------------------------------------- engine
 
@@ -44,6 +48,7 @@ class Engine {
     this.ctx = ctx;
     this.node = node;
     this.tracks = tracks; // [{ type, label, muted, gain }]
+    this.takeTrack = null; // the take's mixer track, set by load
     this.duration = duration;
     this.peaks = peaks; // { min, max } Float32Arrays of PEAK_BUCKETS
     this.position = 0; // at reportedAt
@@ -56,6 +61,7 @@ class Engine {
     this.semitones = 0;
     this.seq = 0;
     this.onEnded = () => {};
+    this.onTake = () => {};
     node.port.onmessage = (e) => this.receive(e.data);
   }
 
@@ -74,11 +80,12 @@ class Engine {
       }),
     );
 
-    // one output per track, and one for the count-in clicks
+    // one output per track, one for the count-in clicks and one for the
+    // recorded take; the input is the microphone, while recording
     const node = new AudioWorkletNode(ctx, "practice-engine", {
-      numberOfInputs: 0,
-      numberOfOutputs: tracks.length + 1,
-      outputChannelCount: [...tracks.map(() => 2), 2],
+      numberOfInputs: 1,
+      numberOfOutputs: tracks.length + 2,
+      outputChannelCount: [...tracks.map(() => 2), 2, 2],
     });
     const withGains = tracks.map((t, i) => {
       const gain = ctx.createGain();
@@ -92,6 +99,10 @@ class Engine {
     const original = tracks.findIndex((t) => t.type === "original");
     const peaks = computePeaks(original >= 0 ? [buffers[original]] : buffers);
     const engine = new Engine(ctx, node, withGains, Math.max(...buffers.map((b) => b.duration)), peaks);
+    const takeGain = ctx.createGain();
+    node.connect(takeGain, tracks.length + 1);
+    takeGain.connect(ctx.destination);
+    engine.takeTrack = { type: "take", label: "My take", muted: false, gain: takeGain };
 
     // copies, so the worklet owns them and the decoded buffers can be freed
     const samples = buffers.map((b) => ({
@@ -111,6 +122,10 @@ class Engine {
   receive(m) {
     if (m.type === "ended") {
       this.onEnded();
+      return;
+    }
+    if (m.type === "take") {
+      this.onTake(m.take);
       return;
     }
     if (m.seq !== this.seq) return; // from before the last command
@@ -288,6 +303,7 @@ function setStretch(speed, key) {
   $("speed").value = settings.speed;
   $("key").value = settings.key;
   updateStretchLabels();
+  updateTakeInfo();
 }
 
 function updateStretchLabels() {
@@ -503,6 +519,125 @@ $("marker-form").addEventListener("submit", async (e) => {
   if (await saveMarker(label)) showMarkerForm(false);
 });
 
+// ---------------------------------------------------------------- recording
+
+// showMixer builds the mixer, with a row for the take once there is one.
+function showMixer() {
+  const tracks = take ? [...engine.tracks, engine.takeTrack] : engine.tracks;
+  mixer = buildMixer(song, { tracks, setGain: (t, v, i) => engine.setGain(t, v, i) }, PREFS_KEY, {
+    solo: true,
+    onChange: updatePresets,
+  });
+}
+
+async function toggleRecording() {
+  if (!engine) return;
+  if (recording) {
+    engine.send({ type: "record", on: false }); // the take comes back in receiveTake
+    return;
+  }
+  let stream;
+  try {
+    // the raw voice: the browser's processing smears it and adds delay
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+  } catch {
+    toast("Couldn't use the microphone. Check that the browser may use it.", true);
+    return;
+  }
+  await audioCtx.resume();
+  const source = audioCtx.createMediaStreamSource(stream);
+  source.connect(engine.node);
+  recording = { stream, source };
+  dropTake();
+
+  // what you hear left the speakers a while ago, and your voice takes a while to get here
+  const inputLatency = stream.getAudioTracks()[0]?.getSettings().latency ?? 0;
+  const latency = (audioCtx.baseLatency || 0) + (audioCtx.outputLatency || 0) + inputLatency;
+  if (!engine.playing) engine.play();
+  engine.send({ type: "record", on: true, latency });
+  updateRecordUI();
+}
+
+function receiveTake(received) {
+  if (recording) {
+    recording.source.disconnect();
+    for (const track of recording.stream.getTracks()) track.stop();
+    recording = null;
+  }
+  if (received) {
+    take = { ...received, url: URL.createObjectURL(wavBlob(received.samples, audioCtx.sampleRate)) };
+    $("take-download").href = take.url;
+    $("take-offset").value = 0;
+    updateTakeOffset();
+    engine.send({ type: "takeOffset", seconds: 0 });
+    showMixer();
+    updatePresets();
+  }
+  updateRecordUI();
+}
+
+function dropTake() {
+  if (!take) return;
+  URL.revokeObjectURL(take.url);
+  take = null;
+  showMixer();
+  updatePresets();
+}
+
+function updateRecordUI() {
+  $("record").textContent = recording ? "■ Stop" : "● Record";
+  $("record").setAttribute("aria-pressed", String(Boolean(recording)));
+  for (const id of ["take-offset-field", "take-offset", "take-download"]) $(id).hidden = !take || Boolean(recording);
+  updateTakeInfo();
+}
+
+function updateTakeInfo() {
+  const info = $("take-info");
+  if (recording) {
+    info.textContent = engine.loop ? "Recording until the end of the loop…" : "Recording…";
+  } else if (!take) {
+    info.textContent = "Use headphones, or the microphone records the song too.";
+  } else if (take.tempo !== engine.tempo || take.semitones !== engine.semitones) {
+    const key = take.semitones > 0 ? `+${take.semitones}` : String(take.semitones);
+    info.textContent = `Recorded at ${Math.round(take.tempo * 100)}% speed and key ${key}: set them back to hear it.`;
+  } else {
+    info.textContent = `Your take, ${formatTime(take.samples.length / audioCtx.sampleRate, true)} long, plays along with the song.`;
+  }
+}
+
+function updateTakeOffset() {
+  const ms = Number($("take-offset").value);
+  $("take-offset-value").textContent = `${ms > 0 ? "+" : ""}${ms} ms`;
+}
+
+// wavBlob encodes mono samples as a 16-bit WAV file.
+function wavBlob(samples, rate) {
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((v, i) => view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
+  return new Blob([view], { type: "audio/wav" });
+}
+
+$("record").addEventListener("click", toggleRecording);
+$("take-offset").addEventListener("input", updateTakeOffset);
+$("take-offset").addEventListener("change", () => {
+  engine.send({ type: "takeOffset", seconds: Number($("take-offset").value) / 1000 });
+});
+
 // ---------------------------------------------------------------- presets
 
 function setupPresets() {
@@ -515,7 +650,9 @@ function setupPresets() {
 }
 
 function applyPreset(name) {
-  for (const row of mixer.rows) mixer.setMuted(row.type, PRESETS[name](row.type));
+  for (const row of mixer.rows) {
+    if (row.type !== "take") mixer.setMuted(row.type, PRESETS[name](row.type));
+  }
   mixer.clearSolo();
   mixer.commit();
 }
@@ -526,7 +663,7 @@ function updatePresets() {
   const soloing = mixer.rows.some((r) => r.soloed);
   for (const button of document.querySelectorAll("[data-preset]")) {
     const muted = PRESETS[button.dataset.preset];
-    const active = !button.disabled && !soloing && mixer.rows.every((r) => r.pref.muted === muted(r.type));
+    const active = !button.disabled && !soloing && mixer.rows.every((r) => r.type === "take" || r.pref.muted === muted(r.type));
     button.setAttribute("aria-pressed", String(active));
   }
 }
@@ -562,7 +699,8 @@ async function start() {
   }
   engine.onEnded = updatePlayButton;
 
-  mixer = buildMixer(song, engine, PREFS_KEY, { solo: true, onChange: updatePresets });
+  engine.onTake = receiveTake;
+  showMixer();
   setupPresets();
   hideMessage();
   $("seek").max = engine.duration;
@@ -597,7 +735,7 @@ function updatePlayButton() {
 }
 
 function setControlsEnabled(enabled) {
-  for (const id of ["play-pause", "seek", "back-5", "forward-5"]) $(id).disabled = !enabled;
+  for (const id of ["play-pause", "seek", "back-5", "forward-5", "record"]) $(id).disabled = !enabled;
   updatePlayButton();
 }
 
@@ -668,6 +806,8 @@ const shortcuts = {
   "+": () => setStretch(settings.speed + SPEEDS.step, settings.key),
   ",": () => setStretch(settings.speed, settings.key - 1),
   ".": () => setStretch(settings.speed, settings.key + 1),
+  r: toggleRecording,
+  R: toggleRecording,
   "?": () => $("shortcuts").showModal(),
 };
 

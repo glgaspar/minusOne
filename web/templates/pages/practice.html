@@ -62,6 +62,13 @@
         </form>
         <ul class="markers" id="markers" aria-label="Saved sections"></ul>
       </div>
+      <div class="tool-row">
+        <button type="button" class="small toggle" id="record" aria-pressed="false" title="Record yourself over the song (R)" disabled>● Record</button>
+        <span class="small muted" id="take-info">Use headphones, or the microphone records the song too.</span>
+        <label class="small slider-field tool-push" for="take-offset" id="take-offset-field" hidden>Offset <output id="take-offset-value">0 ms</output></label>
+        <input type="range" id="take-offset" class="take-offset" min="-300" max="300" step="10" value="0" aria-label="Take offset, in milliseconds" hidden>
+        <a class="button small" id="take-download" download="my-take.wav" hidden>Download</a>
+      </div>
     </div>
 
     <div class="presets" id="presets" hidden>
@@ -85,6 +92,7 @@
       <dt><kbd>Esc</kbd></dt><dd>Clear the loop</dd>
       <dt><kbd>-</kbd> <kbd>=</kbd></dt><dd>Slower / faster</dd>
       <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Key down / up</dd>
+      <dt><kbd>R</kbd></dt><dd>Record / stop</dd>
       <dt><kbd>?</kbd></dt><dd>This list</dd>
     </dl>
     <div class="actions"><button type="button" data-close-dialog>Close</button></div>

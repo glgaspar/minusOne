@@ -233,6 +233,8 @@ input[type="range"]:focus { outline-offset: 2px; }
 .slider-field { white-space: nowrap; }
 .slider-field output { display: inline-block; min-width: 3.2em; font-variant-numeric: tabular-nums; color: var(--muted); }
 .tool-row input[type="range"] { flex: 1; min-width: 100px; }
+.tool-row input.take-offset { flex: 0 1 160px; }
+.tool-row [hidden] { display: none; }
 .marker-form { display: flex; align-items: center; gap: 6px; }
 .marker-form[hidden] { display: none; }
 .marker-form input { padding: 4px 8px; font-size: 0.85rem; width: 14em; }
