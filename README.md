@@ -37,6 +37,19 @@ There is one shared play queue. Anyone can add **Ready** songs from the catalog 
 
 Audio is served by the app (`/songs/<id>/audio/<track>`) to logged-in users, so the storage stays private.
 
+## Practicing
+
+**Practice** on a Ready song in the catalog plays it on your device only, outside the shared queue (the device playing the queue isn't affected). It needs the app over HTTPS, or localhost: browsers only allow the audio engine and the microphone there.
+
+- **Loop:** drag across the waveform to pick a section, or use **Set A** / **Set B** at the playhead. A click on the waveform seeks. **Count-in** adds 1–3 seconds of clicks before playing and before every repeat.
+- **Speed and key:** slow down to 50% (or speed up to 120%) without changing the pitch, and move the key up to 6 semitones either way. All tracks are stretched with the same cuts, so they stay together. The video follows at the closest speed YouTube offers.
+- **Presets:** Full, Karaoke (no vocals) and Vocals only, plus Solo on every track. They need split tracks.
+- **Sections:** **Save loop…** keeps the current loop under a name, to come back to it with one click. Sections are per user.
+- **Record:** sings over the song (use headphones). The take lines up with the song, gets its own row in the mixer and an **Offset** slider for fine-tuning, and can be downloaded as WAV. It plays only at the speed and key it was recorded at, and it never leaves your browser.
+- Keyboard: Space, ←/→, `[`/`]`, `L`, `Esc`, `-`/`=`, `,`/`.`, `R`; `?` lists them.
+
+Loop, count-in, speed and key are remembered per song on that device, and the mixer has its own settings, apart from the queue player's.
+
 ## Running with Docker
 
 Requirements: Docker with Compose v2.
@@ -142,9 +155,16 @@ web/                 the web app (echo + htmx)
   auth.go            register, login, sessions
   catalog.go         catalog, search, add-song modal, status polling, retry, delete
   player.go          player page, play queue, audio streaming
+  owner.go           which device plays the queue: lease, requests, handoff
+  practice.go        practice page and saved sections
   render.go          template rendering
   templates/         page and partial templates
-  static/            css, js, htmx (vendored, no CDN); player.js is the audio mixer and video sync
+  static/            css, js, htmx (vendored, no CDN)
+    playback.js      shared by both players: video sync, mixer UI and its saved settings
+    player.js        queue player: audio mixer, polling, ownership
+    practice.js      practice page: loop, waveform, presets, sections, recording
+    practice-worklet.js  practice audio engine (AudioWorklet): tracks in lockstep, loop, speed/key, takes
+    vendor/          soundtouch.js (soundtouchjs 0.3.0, LGPL-2.1) for speed and key
 ```
 
 ## When downloads start failing
