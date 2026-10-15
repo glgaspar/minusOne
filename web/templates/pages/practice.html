@@ -53,6 +53,15 @@
         <input type="range" id="key" min="-6" max="6" step="1" value="0" aria-label="Key, in semitones">
         <button type="button" class="link small" id="key-reset" hidden>Reset</button>
       </div>
+      <div class="tool-row">
+        <button type="button" class="small" id="save-loop" title="Keep this loop to come back to it" disabled>Save loop…</button>
+        <form id="marker-form" class="marker-form" hidden>
+          <input id="marker-label" maxlength="40" placeholder="Name it, e.g. Chorus" aria-label="Section name" required>
+          <button type="submit" class="primary small">Save</button>
+          <button type="button" class="small" id="marker-cancel">Cancel</button>
+        </form>
+        <ul class="markers" id="markers" aria-label="Saved sections"></ul>
+      </div>
     </div>
 
     <div class="presets" id="presets" hidden>

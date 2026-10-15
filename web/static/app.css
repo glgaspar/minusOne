@@ -233,6 +233,14 @@ input[type="range"]:focus { outline-offset: 2px; }
 .slider-field { white-space: nowrap; }
 .slider-field output { display: inline-block; min-width: 3.2em; font-variant-numeric: tabular-nums; color: var(--muted); }
 .tool-row input[type="range"] { flex: 1; min-width: 100px; }
+.marker-form { display: flex; align-items: center; gap: 6px; }
+.marker-form[hidden] { display: none; }
+.marker-form input { padding: 4px 8px; font-size: 0.85rem; width: 14em; }
+.markers { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.marker { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); }
+.marker.is-active { border-color: var(--accent); }
+.marker-chip { border: 0; background: none; padding: 3px 4px 3px 12px; font-size: 0.85rem; }
+.marker .icon-link { min-width: 26px; height: 26px; font-size: 0.95rem; }
 button.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .shortcuts { padding: 20px 24px; }
 .shortcuts h2 { margin: 0 0 12px; font-size: 1.1rem; }

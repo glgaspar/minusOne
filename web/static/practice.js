@@ -7,7 +7,8 @@
 //
 // Learning tools: an A–B loop picked on the song's waveform, a count-in
 // before playing and before every repeat, mixer presets and solo, and slowing
-// down or changing the key (the worklet does that with SoundTouch). They are saved per song on this
+// down or changing the key (the worklet does that with SoundTouch). Loops can
+// be saved as named sections, which are kept on the server per user. They are saved per song on this
 // device. Most things have a keyboard shortcut (the "?" dialog lists them).
 
 const SYNC_MS = 250;
@@ -34,6 +35,7 @@ let engine = null;
 let seeking = false;
 let settings = loadSettings();
 let mixer = null; // buildMixer's controls
+let markers = []; // [{ id, label, start, end }], in song order
 
 // ---------------------------------------------------------------- engine
 
@@ -260,6 +262,8 @@ function updateLoopUI() {
   $("loop-toggle").setAttribute("aria-pressed", String(settings.looping));
   $("loop-range").textContent = loop ? `${formatTime(loop.a, true)} – ${formatTime(loop.b, true)}` : "No loop";
   $("loop-clear").hidden = !loop;
+  $("save-loop").disabled = !loop;
+  renderMarkers();
   drawWaveform();
 }
 
@@ -349,6 +353,20 @@ function drawWaveform() {
   g.globalAlpha = 1;
   g.fillStyle = color("--text");
   g.fillRect(played - dpr, 0, 2 * dpr, height);
+
+  // saved sections: a bar along the top with the name, if it fits
+  g.font = `${11 * dpr}px system-ui, sans-serif`;
+  g.textBaseline = "top";
+  for (const m of markers) {
+    const from = x(m.start);
+    const w = x(m.end) - from;
+    g.fillStyle = color("--muted");
+    g.fillRect(from, 0, w, 3 * dpr);
+    if (g.measureText(m.label).width + 4 * dpr < w) {
+      g.fillStyle = color("--text");
+      g.fillText(m.label, from + 2 * dpr, 5 * dpr);
+    }
+  }
 }
 
 canvas.addEventListener("pointerdown", (e) => {
@@ -385,6 +403,105 @@ canvas.addEventListener("pointercancel", () => {
 });
 
 new ResizeObserver(() => drawWaveform()).observe(canvas);
+
+// ---------------------------------------------------------------- markers
+
+const markersURL = `/songs/${song.songId}/markers`;
+
+async function loadMarkers() {
+  try {
+    const res = await fetch(markersURL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    markers = await res.json();
+  } catch {
+    toast("Couldn't load your saved sections.", true);
+  }
+  renderMarkers();
+}
+
+async function saveMarker(label) {
+  const { a, b } = settings.loop;
+  const res = await fetch(markersURL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ label, start: a, end: b }),
+  }).catch(() => null);
+  if (!res?.ok) {
+    const message = await res?.json().then((e) => e.message).catch(() => null);
+    toast(message ? `Couldn't save it: ${message}.` : "Couldn't save the section.", true);
+    return false;
+  }
+  markers.push(await res.json());
+  markers.sort((x, y) => x.start - y.start || x.end - y.end);
+  renderMarkers();
+  return true;
+}
+
+async function deleteMarker(marker) {
+  const res = await fetch(`${markersURL}/${marker.id}`, { method: "DELETE" }).catch(() => null);
+  if (!res?.ok && res?.status !== 404) {
+    toast("Couldn't delete the section.", true);
+    return;
+  }
+  markers = markers.filter((m) => m.id !== marker.id);
+  renderMarkers();
+}
+
+function useMarker(marker) {
+  setLoop({ a: marker.start, b: marker.end }, true);
+  seekTo(marker.start);
+}
+
+function renderMarkers() {
+  const list = $("markers");
+  list.replaceChildren();
+  const loop = settings.loop;
+  for (const m of markers) {
+    const li = document.createElement("li");
+    li.className = "marker";
+    const active = loop && Math.abs(loop.a - m.start) < 0.01 && Math.abs(loop.b - m.end) < 0.01;
+    li.classList.toggle("is-active", Boolean(active));
+
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "marker-chip";
+    chip.textContent = m.label;
+    chip.title = `Loop ${formatTime(m.start, true)} – ${formatTime(m.end, true)}`;
+    chip.addEventListener("click", () => useMarker(m));
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-link icon-delete";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Delete ${m.label}`);
+    remove.addEventListener("click", () => deleteMarker(m));
+
+    li.append(chip, remove);
+    list.append(li);
+  }
+  drawWaveform();
+}
+
+function showMarkerForm(show) {
+  $("marker-form").hidden = !show;
+  $("save-loop").hidden = show;
+  if (show) {
+    $("marker-label").value = "";
+    $("marker-label").focus();
+  }
+}
+
+$("save-loop").addEventListener("click", () => showMarkerForm(true));
+$("marker-cancel").addEventListener("click", () => showMarkerForm(false));
+$("marker-label").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") showMarkerForm(false);
+});
+$("marker-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const label = $("marker-label").value.trim();
+  if (!label || !settings.loop) return;
+  if (await saveMarker(label)) showMarkerForm(false);
+});
 
 // ---------------------------------------------------------------- presets
 
@@ -454,6 +571,7 @@ async function start() {
   setCountIn(settings.countIn);
   setLoop(settings.loop);
   setStretch(settings.speed, settings.key);
+  loadMarkers();
   requestAnimationFrame(frame);
   setInterval(() => syncVideo(engine.time(), engine.playing && !engine.isCounting(), engine.tempo), SYNC_MS);
 }
