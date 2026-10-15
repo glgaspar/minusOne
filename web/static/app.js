@@ -46,3 +46,24 @@ function toast(message, isError = false) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), 4000);
 }
+
+// Every tab is a device with its own id, kept across reloads. The player
+// belongs to a device, so this goes with every request that touches the queue.
+function deviceId() {
+  try {
+    let id = sessionStorage.getItem("minusone.device");
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem("minusone.device", id);
+    }
+    return id;
+  } catch {
+    // no storage: a reload makes this a new device
+    window.minusoneDevice ??= crypto.randomUUID();
+    return window.minusoneDevice;
+  }
+}
+
+document.addEventListener("htmx:configRequest", (e) => {
+  e.detail.headers["X-Device-Id"] = deviceId();
+});

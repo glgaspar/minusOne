@@ -194,7 +194,7 @@ main:has(.player-page) { max-width: 1280px; }
   color: #fff; background: rgb(0 0 0 / 0.65);
 }
 .screen-overlay[hidden] { display: none; }
-.screen-overlay p { margin: 0; opacity: 0.8; }
+.screen-overlay p { margin: 0; opacity: 0.8; white-space: pre-line; }
 button.big { padding: 12px 24px; font-size: 1.1rem; }
 
 .now-playing { margin: 14px 0 4px; }
@@ -213,6 +213,12 @@ input[type="range"] { width: 100%; padding: 0; border: 0; background: none; acce
 input[type="range"]:focus { outline-offset: 2px; }
 
 .mixer { padding: 4px 16px; }
+
+/* only the device that owns the player plays; the others watch it */
+.player.is-watching .transport, .player.is-watching .mixer, .player.is-watching .request-banner { display: none; }
+.request-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 14px; margin: 8px 0; }
+.request-banner[hidden] { display: none; }
+.request-banner span { flex: 1; min-width: 12em; font-weight: 600; }
 .track {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(120px, 2fr); align-items: center; gap: 12px;
   padding: 10px 0; border-bottom: 1px solid var(--border);

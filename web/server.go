@@ -63,7 +63,6 @@ func (s *Server) routes() {
 	app.GET("/songs/:id/audio/:track", s.songAudio)
 
 	app.GET("/player", s.playerPage)
-	app.GET("/player/current", s.playerCurrent)
 	app.POST("/player/heartbeat", s.playerHeartbeat)
 	app.POST("/player/request", s.requestPlayer)
 	app.POST("/player/request/accept", s.acceptRequest)

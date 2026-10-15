@@ -29,6 +29,9 @@ There is one shared play queue. Anyone can add **Ready** songs from the catalog 
 
 - The player plays the first song in the queue. When it ends, or someone skips it from any device, the song is removed and the next one starts. New songs are picked up within a few seconds.
 - Browsers only allow sound after a click, so the player needs one click on **Start player** each time the page is opened.
+- Only one device plays the queue: the first one to start the player owns it. Other devices that open the Player page see what it's playing (and where, or if it's paused) but make no sound. They can still add songs and remove upcoming ones, but only the owner can skip the song playing.
+- Another device can **Ask to play here**. The owner gets a prompt and can pass the player on, and the song continues on the new device from the same spot. Unanswered requests expire after 30 seconds. The owner can also click **Stop here** to give the player up.
+- The owner keeps the player by polling. If its tab is closed or the computer sleeps, the player is free again after 15 seconds and the next device to start it takes over, picking up the song where it stopped.
 - The song's YouTube video plays muted. The sound comes from the song's tracks, mixed in the browser: each track has its own volume and mute. **Original** is the downloaded audio; once a song has split tracks, Original starts muted so it doesn't double them. Volume and mute settings are remembered per track type on that screen.
 - The video follows the audio and is re-seeked if it drifts. If the owner doesn't allow embedding, the thumbnail is shown instead.
 

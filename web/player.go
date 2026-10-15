@@ -82,19 +82,6 @@ func (s *Server) playerPage(c echo.Context) error {
 	})
 }
 
-// playerCurrent returns the song at the head of the queue as JSON, or 204 if
-// the queue is empty.
-func (s *Server) playerCurrent(c echo.Context) error {
-	song, err := s.currentSong(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	if song == nil {
-		return c.NoContent(http.StatusNoContent)
-	}
-	return c.JSON(http.StatusOK, song)
-}
-
 // currentSong returns what player.js needs to play the song at the head of
 // the queue, or nil if the queue is empty.
 func (s *Server) currentSong(ctx context.Context) (*playerSong, error) {
