@@ -53,15 +53,22 @@ function deviceId() {
   try {
     let id = sessionStorage.getItem("minusone.device");
     if (!id) {
-      id = crypto.randomUUID();
+      id = newDeviceId();
       sessionStorage.setItem("minusone.device", id);
     }
     return id;
   } catch {
     // no storage: a reload makes this a new device
-    window.minusoneDevice ??= crypto.randomUUID();
+    window.minusoneDevice ??= newDeviceId();
     return window.minusoneDevice;
   }
+}
+
+// not crypto.randomUUID: it only exists on https and localhost, and phones
+// often open the app at a plain http LAN address
+function newDeviceId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 document.addEventListener("htmx:configRequest", (e) => {
