@@ -19,10 +19,13 @@
     </div>
 
     <div class="transport">
+      <button type="button" id="back-5" class="small" title="Back 5 seconds (←)" disabled>−5s</button>
       <button type="button" id="play-pause" class="transport-button" aria-label="Play" disabled>▶</button>
+      <button type="button" id="forward-5" class="small" title="Forward 5 seconds (→)" disabled>+5s</button>
       <span class="time" id="time-current">0:00</span>
       <input type="range" id="seek" min="0" max="0" step="0.1" value="0" aria-label="Position" disabled>
       <span class="time" id="time-total">0:00</span>
+      <button type="button" class="icon-link" data-open-dialog="shortcuts" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
     </div>
 
     <div class="tools card" id="tools" hidden>
@@ -47,6 +50,21 @@
     <div class="mixer card" id="mixer" aria-label="Tracks" hidden></div>
   </div>
 </section>
+
+<dialog id="shortcuts" aria-label="Keyboard shortcuts">
+  <div class="shortcuts">
+    <h2>Keyboard shortcuts</h2>
+    <dl>
+      <dt><kbd>Space</kbd></dt><dd>Play / pause</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Back / forward 5 seconds (1 with <kbd>Shift</kbd>)</dd>
+      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Start / end the loop here</dd>
+      <dt><kbd>L</kbd></dt><dd>Loop on / off</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Clear the loop</dd>
+      <dt><kbd>?</kbd></dt><dd>This list</dd>
+    </dl>
+    <div class="actions"><button type="button" data-close-dialog>Close</button></div>
+  </div>
+</dialog>
 
 {{template "track-template"}}
 <script type="application/json" id="song-data">{{.Song}}</script>

@@ -7,12 +7,14 @@
 //
 // Learning tools: an A–B loop picked on the song's waveform, and a count-in
 // before playing and before every repeat. They are saved per song on this
-// device.
+// device. Most things have a keyboard shortcut (the "?" dialog lists them).
 
 const SYNC_MS = 250;
 const PREFS_KEY = "minusone.practice";
 const PEAK_BUCKETS = 2000;
 const MIN_LOOP_S = 0.5;
+const NUDGE_S = 5;
+const FINE_NUDGE_S = 1;
 
 const song = JSON.parse($("song-data").textContent);
 
@@ -393,7 +395,7 @@ function updatePlayButton() {
 }
 
 function setControlsEnabled(enabled) {
-  for (const id of ["play-pause", "seek"]) $(id).disabled = !enabled;
+  for (const id of ["play-pause", "seek", "back-5", "forward-5"]) $(id).disabled = !enabled;
   updatePlayButton();
 }
 
@@ -433,11 +435,39 @@ $("seek").addEventListener("change", () => {
   seekTo(Number($("seek").value));
 });
 
+$("back-5").addEventListener("click", () => seekTo(engine.time() - NUDGE_S));
+$("forward-5").addEventListener("click", () => seekTo(engine.time() + NUDGE_S));
 $("set-a").addEventListener("click", setA);
 $("set-b").addEventListener("click", setB);
 $("loop-toggle").addEventListener("click", toggleLoop);
 $("loop-clear").addEventListener("click", () => setLoop(null));
 $("count-in").addEventListener("change", () => setCountIn(Number($("count-in").value)));
+
+// ---------------------------------------------------------------- shortcuts
+
+const shortcuts = {
+  " ": togglePlay,
+  ArrowLeft: (e) => seekTo(engine.time() - (e.shiftKey ? FINE_NUDGE_S : NUDGE_S)),
+  ArrowRight: (e) => seekTo(engine.time() + (e.shiftKey ? FINE_NUDGE_S : NUDGE_S)),
+  "[": setA,
+  "]": setB,
+  l: toggleLoop,
+  L: toggleLoop,
+  Escape: () => setLoop(null),
+  "?": () => $("shortcuts").showModal(),
+};
+
+document.addEventListener("keydown", (e) => {
+  const action = shortcuts[e.key];
+  if (!action || !engine || e.ctrlKey || e.metaKey || e.altKey) return;
+  const target = e.target;
+  // typing, sliders (arrows move them) and open dialogs keep their keys,
+  // and so do buttons for Space, which presses them
+  if (target.closest("input, select, textarea, [contenteditable]") || document.querySelector("dialog[open]")) return;
+  if (e.key === " " && target.closest("button")) return;
+  e.preventDefault();
+  action(e);
+});
 
 loadYouTubeAPI();
 start();
