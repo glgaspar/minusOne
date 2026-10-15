@@ -117,44 +117,80 @@ function savePref(store, key, pref) {
   } catch {}
 }
 
-// buildMixer shows a row per track with its volume and mute. mixer is anything
-// with tracks ({type, label, muted}) and setGain(track, value, immediate).
-function buildMixer(song, mixer, store) {
+// buildMixer shows a row per track with its volume and mute, and with
+// opts.solo a solo button: while any track is soloed, only soloed tracks play.
+// mixer is anything with tracks ({type, label, muted}) and
+// setGain(track, value, immediate). opts.onChange runs after every change.
+//
+// It returns controls for presets: setMuted(type, muted) for several tracks,
+// then commit() to apply and save them.
+function buildMixer(song, mixer, store, opts = {}) {
   const box = $("mixer");
   box.replaceChildren();
   const prefs = loadPrefs(store);
   const hasStems = song.tracks.some((t) => t.type !== "original");
+  const rows = [];
+  const anySolo = () => rows.some((r) => r.soloed);
+  const applyAll = (immediate) => {
+    for (const r of rows) r.apply(immediate);
+    opts.onChange?.();
+  };
 
   for (const track of mixer.tracks) {
     const key = prefKey(track, hasStems);
     const pref = { volume: 1, muted: track.muted, ...prefs[key] };
 
-    const row = $("track-template").content.firstElementChild.cloneNode(true);
-    const muteButton = row.querySelector(".track-mute");
-    const volume = row.querySelector(".track-volume");
-    row.querySelector(".track-label").textContent = track.label;
+    const el = $("track-template").content.firstElementChild.cloneNode(true);
+    const muteButton = el.querySelector(".track-mute");
+    const soloButton = el.querySelector(".track-solo");
+    const volume = el.querySelector(".track-volume");
+    el.querySelector(".track-label").textContent = track.label;
+    soloButton.hidden = !opts.solo;
     volume.value = pref.volume;
     volume.setAttribute("aria-label", `${track.label} volume`);
 
-    const apply = (immediate) => {
-      mixer.setGain(track, pref.muted ? 0 : pref.volume, immediate);
+    const row = { type: track.type, pref, soloed: false };
+    row.apply = (immediate) => {
+      const silent = pref.muted || (anySolo() && !row.soloed);
+      mixer.setGain(track, silent ? 0 : pref.volume, immediate);
       muteButton.setAttribute("aria-pressed", String(pref.muted));
       muteButton.textContent = pref.muted ? "Unmute" : "Mute";
-      row.classList.toggle("is-muted", pref.muted);
+      soloButton.setAttribute("aria-pressed", String(row.soloed));
+      el.classList.toggle("is-muted", silent);
     };
+    row.save = () => savePref(store, key, pref);
     muteButton.addEventListener("click", () => {
       pref.muted = !pref.muted;
-      apply();
-      savePref(store, key, pref);
+      applyAll();
+      row.save();
+    });
+    soloButton.addEventListener("click", () => {
+      row.soloed = !row.soloed;
+      applyAll();
     });
     volume.addEventListener("input", () => {
       pref.volume = Number(volume.value);
-      apply();
-      savePref(store, key, pref);
+      row.apply();
+      row.save();
     });
 
-    apply(true);
-    box.append(row);
+    rows.push(row);
+    box.append(el);
   }
+  applyAll(true);
   box.hidden = false;
+
+  return {
+    rows,
+    setMuted(type, muted) {
+      for (const r of rows) if (r.type === type) r.pref.muted = muted;
+    },
+    clearSolo() {
+      for (const r of rows) r.soloed = false;
+    },
+    commit() {
+      for (const r of rows) r.save();
+      applyAll();
+    },
+  };
 }

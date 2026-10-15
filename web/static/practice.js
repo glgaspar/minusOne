@@ -5,8 +5,8 @@
 // reports to draw the playhead and keep the video in sync. Each track comes out
 // of its own output into a GainNode here, for volume and mute.
 //
-// Learning tools: an A–B loop picked on the song's waveform, and a count-in
-// before playing and before every repeat. They are saved per song on this
+// Learning tools: an A–B loop picked on the song's waveform, a count-in
+// before playing and before every repeat, mixer presets and solo. They are saved per song on this
 // device. Most things have a keyboard shortcut (the "?" dialog lists them).
 
 const SYNC_MS = 250;
@@ -16,12 +16,21 @@ const MIN_LOOP_S = 0.5;
 const NUDGE_S = 5;
 const FINE_NUDGE_S = 1;
 
+// Mixer presets: whether each track type is muted. The original is the whole
+// mix, so with split tracks it stays muted.
+const PRESETS = {
+  full: (type) => type === "original",
+  karaoke: (type) => type === "original" || type === "vocals",
+  vocals: (type) => type !== "vocals",
+};
+
 const song = JSON.parse($("song-data").textContent);
 
 let audioCtx = null;
 let engine = null;
 let seeking = false;
 let settings = loadSettings();
+let mixer = null; // buildMixer's controls
 
 // ---------------------------------------------------------------- engine
 
@@ -336,6 +345,38 @@ canvas.addEventListener("pointercancel", () => {
 
 new ResizeObserver(() => drawWaveform()).observe(canvas);
 
+// ---------------------------------------------------------------- presets
+
+function setupPresets() {
+  const types = song.tracks.map((t) => t.type);
+  const usable = types.includes("vocals") && types.some((t) => t !== "original" && t !== "vocals");
+  for (const button of document.querySelectorAll("[data-preset]")) button.disabled = !usable;
+  $("presets-hint").hidden = usable;
+  $("presets").hidden = false;
+  updatePresets();
+}
+
+function applyPreset(name) {
+  for (const row of mixer.rows) mixer.setMuted(row.type, PRESETS[name](row.type));
+  mixer.clearSolo();
+  mixer.commit();
+}
+
+// updatePresets highlights the preset the mixer matches, if any.
+function updatePresets() {
+  if (!mixer) return;
+  const soloing = mixer.rows.some((r) => r.soloed);
+  for (const button of document.querySelectorAll("[data-preset]")) {
+    const muted = PRESETS[button.dataset.preset];
+    const active = !button.disabled && !soloing && mixer.rows.every((r) => r.pref.muted === muted(r.type));
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+for (const button of document.querySelectorAll("[data-preset]")) {
+  button.addEventListener("click", () => applyPreset(button.dataset.preset));
+}
+
 // ---------------------------------------------------------------- page
 
 async function start() {
@@ -363,7 +404,8 @@ async function start() {
   }
   engine.onEnded = updatePlayButton;
 
-  buildMixer(song, engine, PREFS_KEY);
+  mixer = buildMixer(song, engine, PREFS_KEY, { solo: true, onChange: updatePresets });
+  setupPresets();
   hideMessage();
   $("seek").max = engine.duration;
   $("tools").hidden = false;

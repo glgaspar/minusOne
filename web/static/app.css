@@ -253,7 +253,11 @@ select { font: inherit; padding: 3px 6px; border: 1px solid var(--border); borde
 }
 .track:last-child { border-bottom: 0; }
 .track-label { font-weight: 600; }
+.track-buttons { display: flex; gap: 6px; }
 .track-mute { min-width: 76px; }
+.track-solo[aria-pressed="true"] { background: var(--badge-processing-bg); border-color: transparent; color: var(--badge-processing); }
+.presets { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0 4px; }
+.presets[hidden] { display: none; }
 .track-mute[aria-pressed="true"] { background: var(--badge-failed-bg); border-color: transparent; color: var(--badge-failed); }
 .track.is-muted .track-label, .track.is-muted .track-volume { opacity: 0.45; }
 

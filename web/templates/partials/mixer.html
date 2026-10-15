@@ -3,7 +3,10 @@
 <template id="track-template">
   <div class="track">
     <span class="track-label"></span>
-    <button type="button" class="track-mute small" aria-pressed="false">Mute</button>
+    <div class="track-buttons">
+      <button type="button" class="track-solo small" aria-pressed="false" title="Play only the soloed tracks" hidden>Solo</button>
+      <button type="button" class="track-mute small" aria-pressed="false">Mute</button>
+    </div>
     <input type="range" class="track-volume" min="0" max="1" step="0.01">
   </div>
 </template>
