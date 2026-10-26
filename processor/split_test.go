@@ -13,6 +13,7 @@ import (
 // name in --custom_output_names, except a stem named in $SKIP, or fails with
 // $FAIL as its last words.
 func fakeTools(t *testing.T) {
+	t.Setenv("AUDIO_SEPARATOR_MODEL_DIR", t.TempDir())
 	dir := t.TempDir()
 	scripts := map[string]string{
 		"ffmpeg": `for out; do :; done; echo audio > "$out"`,
@@ -21,10 +22,14 @@ func fakeTools(t *testing.T) {
 while [ $# -gt 0 ]; do
   case "$1" in
     --output_dir) out=$2; shift ;;
+    --model_file_dir) mkdir -p "$2"; echo "$model" > "$2/model"; shift ;;
+    --model_filename) model=$2; shift ;;
+    --download_model_only) only=1 ;;
     --custom_output_names) names=$2; shift ;;
   esac
   shift
 done
+[ -n "$only" ] && exit 0
 mkdir -p "$out"
 for n in $(echo "$names" | grep -o ':"[a-z]*"' | tr -d ':"'); do
   [ "$n" = "$SKIP" ] || echo stem > "$out/$n.flac"
@@ -36,6 +41,33 @@ done`,
 		}
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestModelsDownloadOnceAndWhole(t *testing.T) {
+	fakeTools(t)
+	base := t.TempDir()
+	t.Setenv("AUDIO_SEPARATOR_MODEL_DIR", base)
+
+	// a download cut short last time
+	if err := os.MkdirAll(filepath.Join(base, "k.onnx.download"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := modelDir(context.Background(), "k.onnx")
+	if err != nil || dir != filepath.Join(base, "k.onnx") {
+		t.Fatalf("modelDir = %q, %v", dir, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "model")); err != nil {
+		t.Errorf("not downloaded: %v", err)
+	}
+	if _, err := os.Stat(dir + ".download"); !os.IsNotExist(err) {
+		t.Errorf("partial download left behind: %v", err)
+	}
+
+	// downloaded once: a failing separator isn't called again
+	t.Setenv("FAIL", "no network")
+	if again, err := modelDir(context.Background(), "k.onnx"); err != nil || again != dir {
+		t.Errorf("second call = %q, %v", again, err)
+	}
 }
 
 func newTestSong(t *testing.T) *Song {
@@ -81,6 +113,9 @@ func TestSplitKeepsThePassStems(t *testing.T) {
 func TestSplitErrors(t *testing.T) {
 	fakeTools(t)
 	p := karaokePass(Models{Karaoke: "k.onnx"})
+	if _, err := modelDir(context.Background(), "k.onnx"); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Setenv("FAIL", "BatchSeparationError: Separation failed")
 	err := newTestSong(t).split(context.Background(), p)

@@ -77,9 +77,14 @@ func (s *Song) split(ctx context.Context, p pass) error {
 	if err != nil {
 		return err
 	}
+	models, err := modelDir(ctx, p.model)
+	if err != nil {
+		return err
+	}
 	outDir := filepath.Join(s.WorkDir, "stems")
 	err = run(ctx, "nice", "-n", "10", "audio-separator", input,
 		"--model_filename", p.model,
+		"--model_file_dir", models,
 		"--output_dir", outDir,
 		"--output_format", "FLAC",
 		// The default rescales any stem peaking over 0.9 on its own, which
@@ -116,6 +121,31 @@ func (s *Song) split(ctx context.Context, p pass) error {
 		s.Tracks = append(s.Tracks, track)
 	}
 	return nil
+}
+
+// modelDir returns the directory holding a model's files, downloading them the
+// first time. audio-separator takes any file already there as downloaded, so
+// a download cut short (a pass that gave way, a restart) would leave a broken
+// model for good. So each model downloads into a directory of its own, which
+// only gets its name once the download is complete.
+func modelDir(ctx context.Context, model string) (string, error) {
+	base := os.Getenv("AUDIO_SEPARATOR_MODEL_DIR") // the separator's own setting
+	if base == "" {
+		base = filepath.Join(os.TempDir(), "audio-separator-models")
+	}
+	dir := filepath.Join(base, model)
+	if _, err := os.Stat(dir); err == nil {
+		return dir, nil
+	}
+	partial := dir + ".download"
+	if err := os.RemoveAll(partial); err != nil {
+		return "", err
+	}
+	if err := run(ctx, "audio-separator", "--download_model_only", "--model_filename", model,
+		"--model_file_dir", partial, "--log_level", "warning"); err != nil {
+		return "", fmt.Errorf("downloading %s: %w", model, err)
+	}
+	return dir, os.Rename(partial, dir)
 }
 
 // splitAndSave runs a pass and stores its tracks.
