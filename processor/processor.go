@@ -12,14 +12,14 @@ import (
 )
 
 const (
-	pollInterval = 2 * time.Second  // how often to check the queue when it's empty
-	staleAfter   = 30 * time.Minute // a job locked longer than this is assumed dead and retried
+	pollInterval = 2 * time.Second // how often to check the queue when it's empty
+	staleAfter   = time.Hour       // a job locked longer than this is assumed dead and retried; above passTimeout
 	maxAttempts  = 3
 )
 
 // Run processes queued songs one at a time until ctx is cancelled.
 // It only returns an error when the database stops working.
-func Run(ctx context.Context, database *db.DB, store *Store) error {
+func Run(ctx context.Context, database *db.DB, store *Store, models Models) error {
 	for {
 		job, err := database.ClaimNext(ctx, staleAfter)
 		if errors.Is(err, db.ErrNoJob) {
@@ -38,14 +38,22 @@ func Run(ctx context.Context, database *db.DB, store *Store) error {
 		}
 
 		song := &Song{ID: job.ID, URL: job.SourceURL}
-		if err := finish(ctx, database, song, song.Process(ctx, database, store), job.Attempts); err != nil {
+		if job.OriginalKey != nil && job.Extension != nil {
+			song.OriginalKey, song.Extension = *job.OriginalKey, *job.Extension
+		}
+		if job.Title != nil {
+			song.Title = *job.Title
+		}
+		if err := finish(ctx, database, song, song.Process(ctx, database, store, models), job.Attempts); err != nil {
 			return err
 		}
 	}
 }
 
-// Process runs the whole pipeline for one song.
-func (s *Song) Process(ctx context.Context, database *db.DB, store *Store) error {
+// Process gets a song ready to sing: it downloads it, unless the original is
+// already stored (a retry, or a song from before tracks were split), and runs
+// the karaoke pass.
+func (s *Song) Process(ctx context.Context, database *db.DB, store *Store, models Models) error {
 	workDir, err := os.MkdirTemp("", "minusone-"+s.ID+"-")
 	if err != nil {
 		return err
@@ -53,21 +61,20 @@ func (s *Song) Process(ctx context.Context, database *db.DB, store *Store) error
 	defer os.RemoveAll(workDir)
 	s.WorkDir = workDir
 
-	if err := s.Download(ctx, store); err != nil {
-		return fmt.Errorf("downloading: %w", err)
+	if s.OriginalKey != "" {
+		if err := s.fetchOriginal(ctx, store); err != nil {
+			return err
+		}
+	} else {
+		if err := s.Download(ctx, store); err != nil {
+			return fmt.Errorf("downloading: %w", err)
+		}
+		// saved right away so the catalog shows the title while the rest runs
+		if err := database.SetOriginal(ctx, s.ID, s.Title, s.Author, s.OriginalKey, s.Extension); err != nil {
+			return err
+		}
 	}
-	// saved right away so the catalog shows the title while the rest runs
-	if err := database.SetOriginal(ctx, s.ID, s.Title, s.Author, s.OriginalKey, s.Extension); err != nil {
-		return err
-	}
-
-	if err := s.SplitTracks(ctx); err != nil {
-		return fmt.Errorf("splitting: %w", err)
-	}
-	if err := s.UploadTracks(ctx, store); err != nil {
-		return fmt.Errorf("uploading tracks: %w", err)
-	}
-	return s.SaveToDatabase(ctx, database)
+	return s.splitAndSave(ctx, karaokePass(models), database, store)
 }
 
 func finish(ctx context.Context, database *db.DB, song *Song, jobErr error, attempt int) error {

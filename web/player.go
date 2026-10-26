@@ -20,17 +20,37 @@ import (
 const originalTrack = "original"
 
 var trackLabels = map[string]string{
-	originalTrack: "Original",
-	"vocals":      "Vocals",
-	"drums":       "Drums",
-	"bass":        "Bass",
-	"guitar":      "Guitar",
-	"piano":       "Piano",
-	"other":       "Other instruments",
+	originalTrack:  "Original",
+	"vocals":       "Vocals",
+	"instrumental": "Instrumental",
+	"drums":        "Drums",
+	"bass":         "Bass",
+	"guitar":       "Guitar",
+	"piano":        "Piano",
+	"other":        "Other instruments",
 }
 
 // trackOrder puts the original first, then the voice, then the instruments.
-var trackOrder = map[string]int{originalTrack: 0, "vocals": 1, "drums": 2, "bass": 3, "guitar": 4, "piano": 5, "other": 6}
+var trackOrder = map[string]int{originalTrack: 0, "vocals": 1, "instrumental": 2, "drums": 3, "bass": 4, "guitar": 5, "piano": 6, "other": 7}
+
+// The band comes three ways: the original (with the vocals), the instrumental,
+// or the instrument stems. Playing two of them doubles it, so only one starts
+// unmuted, the first of these the song has. Practicing prefers the stems, to
+// pick instruments apart; the TV the instrumental, the cleanest for karaoke.
+var (
+	practiceBacking = []string{"stems", "instrumental", originalTrack}
+	karaokeBacking  = []string{"instrumental", "stems", originalTrack}
+)
+
+// backingOf says which way of playing the band a track is part of: "stems"
+// for the instruments, else its own type.
+func backingOf(trackType string) string {
+	switch trackType {
+	case "drums", "bass", "guitar", "piano", "other":
+		return "stems"
+	}
+	return trackType
+}
 
 func trackLabel(trackType string) string {
 	if label, ok := trackLabels[trackType]; ok {
@@ -67,8 +87,8 @@ type playerTrack struct {
 	Type  string `json:"type"`
 	Label string `json:"label"`
 	URL   string `json:"url"`
-	// Muted is the starting state when the user has no saved preference:
-	// once a song has split tracks, the original would double them.
+	// Muted is the starting state when the user has no saved preference
+	// (see backingOf).
 	Muted bool `json:"muted"`
 }
 
@@ -102,13 +122,15 @@ func (s *Server) currentSong(ctx context.Context) (*playerSong, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := newPlayerSong(song)
+	out := newPlayerSong(song, false)
 	out.ItemID = head.ID
 	return out, nil
 }
 
-// newPlayerSong lists a song's tracks in mixer order, with the URLs to fetch them.
-func newPlayerSong(song *db.Song) *playerSong {
+// newPlayerSong lists a song's tracks in mixer order, with the URLs to fetch
+// them and which start muted. practice is for the practice page; otherwise the
+// vocals start muted too.
+func newPlayerSong(song *db.Song, practice bool) *playerSong {
 	out := &playerSong{
 		SongID:  song.ID,
 		VideoID: processor.VideoID(song.SourceURL),
@@ -120,13 +142,38 @@ func newPlayerSong(song *db.Song) *playerSong {
 		out.Author = *song.Author
 	}
 
-	hasStems := len(song.Tracks) > 0
 	if song.OriginalKey != nil {
-		out.Tracks = append(out.Tracks, playerTrack{Type: originalTrack, Muted: hasStems})
+		out.Tracks = append(out.Tracks, playerTrack{Type: originalTrack})
 	}
 	for _, t := range song.Tracks {
 		out.Tracks = append(out.Tracks, playerTrack{Type: t.Type})
 	}
+
+	has := map[string]bool{}
+	for _, t := range out.Tracks {
+		has[backingOf(t.Type)] = true
+	}
+	order := karaokeBacking
+	if practice {
+		order = practiceBacking
+	}
+	backing := ""
+	for _, b := range order {
+		if has[b] {
+			backing = b
+			break
+		}
+	}
+	for i := range out.Tracks {
+		t := &out.Tracks[i]
+		switch b := backingOf(t.Type); b {
+		case "vocals":
+			t.Muted = !practice
+		case "stems", "instrumental", originalTrack:
+			t.Muted = b != backing
+		}
+	}
+
 	sort.SliceStable(out.Tracks, func(i, j int) bool {
 		oi, iKnown := trackOrder[out.Tracks[i].Type]
 		oj, jKnown := trackOrder[out.Tracks[j].Type]

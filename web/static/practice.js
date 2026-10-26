@@ -22,13 +22,21 @@ const SPEEDS = { min: 50, max: 120, step: 5 }; // percent
 const KEYS = { min: -6, max: 6 }; // semitones
 const FINE_NUDGE_S = 1;
 
-// Mixer presets: whether each track type is muted. The original is the whole
-// mix, so with split tracks it stays muted.
+// Mixer presets: which backing plays (the first of these the song has, see
+// backingOf) and whether the vocals do.
 const PRESETS = {
-  full: (type) => type === "original",
-  karaoke: (type) => type === "original" || type === "vocals",
-  vocals: (type) => type !== "vocals",
+  full: { backing: ["stems", "instrumental", "original"], vocals: true },
+  karaoke: { backing: ["instrumental", "stems", "original"], vocals: false },
+  vocals: { backing: [], vocals: true },
 };
+
+// presetMuted says whether a preset mutes a track type.
+function presetMuted(name, type) {
+  const preset = PRESETS[name];
+  const has = new Set(song.tracks.map((t) => backingOf(t.type)));
+  const backing = preset.backing.find((b) => has.has(b));
+  return backingOf(type) === "vocals" ? !preset.vocals : backingOf(type) !== backing;
+}
 
 const song = JSON.parse($("song-data").textContent);
 
@@ -641,8 +649,8 @@ $("take-offset").addEventListener("change", () => {
 // ---------------------------------------------------------------- presets
 
 function setupPresets() {
-  const types = song.tracks.map((t) => t.type);
-  const usable = types.includes("vocals") && types.some((t) => t !== "original" && t !== "vocals");
+  const ways = song.tracks.map((t) => backingOf(t.type));
+  const usable = ways.includes("vocals") && (ways.includes("instrumental") || ways.includes("stems"));
   for (const button of document.querySelectorAll("[data-preset]")) button.disabled = !usable;
   $("presets-hint").hidden = usable;
   $("presets").hidden = false;
@@ -651,7 +659,7 @@ function setupPresets() {
 
 function applyPreset(name) {
   for (const row of mixer.rows) {
-    if (row.type !== "take") mixer.setMuted(row.type, PRESETS[name](row.type));
+    if (row.type !== "take") mixer.setMuted(row.type, presetMuted(name, row.type));
   }
   mixer.clearSolo();
   mixer.commit();
@@ -662,8 +670,8 @@ function updatePresets() {
   if (!mixer) return;
   const soloing = mixer.rows.some((r) => r.soloed);
   for (const button of document.querySelectorAll("[data-preset]")) {
-    const muted = PRESETS[button.dataset.preset];
-    const active = !button.disabled && !soloing && mixer.rows.every((r) => r.type === "take" || r.pref.muted === muted(r.type));
+    const name = button.dataset.preset;
+    const active = !button.disabled && !soloing && mixer.rows.every((r) => r.type === "take" || r.pref.muted === presetMuted(name, r.type));
     button.setAttribute("aria-pressed", String(active));
   }
 }

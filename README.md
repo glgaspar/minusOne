@@ -2,20 +2,18 @@
 
 Self-hosted karaoke maker. Paste a YouTube link, and minusOne downloads the song and splits it into separate tracks, so you can play it back *minus one*: the original without the vocals.
 
-> **Status:** download and storage work end to end. Track splitting (`processor.SplitTracks`) is not implemented yet, so a song currently becomes **Ready** with only its original audio.
-
 ## How it works
 
 ```
 browser ──htmx──▶ web ──▶ postgres (songs queue) ◀── processor ──▶ YouTube
                                                         │
                                                         ▼
-                                                  rustfs (S3): songs/<id>/original.m4a, vocals.wav, ...
+                                                  rustfs (S3): songs/<id>/original.webm, vocals.webm, ...
 ```
 
 1. A logged-in user pastes a link in the catalog. The link is normalized to `https://www.youtube.com/watch?v=<id>`, so the same video can't be added twice, and the song is saved as `pending`.
 2. The processor, running in the same binary, claims the oldest pending song (`FOR UPDATE SKIP LOCKED`). It downloads the audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp) into a temporary directory and uploads it to object storage.
-3. It splits the audio into tracks (TODO), uploads each track, and records it in the `tracks` table.
+3. It splits the audio into vocals and instrumental (see [Track splitting](#track-splitting)), uploads each track, and records it in the `tracks` table.
 4. The song is marked `done`. A failed song is retried up to 3 times, then marked `failed`; its **Retry** button puts it back in the queue with 3 new attempts. A song interrupted by a shutdown goes back to the queue.
 
 Songs can be deleted from the catalog, which also deletes their audio files. A song can't be deleted while it is being processed.
@@ -32,7 +30,7 @@ There is one shared play queue. Anyone can add **Ready** songs from the catalog 
 - Only one device plays the queue: the first one to start the player owns it. Other devices that open the Player page see what it's playing (and where, or if it's paused) but make no sound. They can still add songs and remove upcoming ones, but only the owner can skip the song playing.
 - Another device can **Ask to play here**. The owner gets a prompt and can pass the player on, and the song continues on the new device from the same spot. Unanswered requests expire after 30 seconds. The owner can also click **Stop here** to give the player up.
 - The owner keeps the player by polling. If its tab is closed or the computer sleeps, the player is free again after 15 seconds and the next device to start it takes over, picking up the song where it stopped.
-- The song's YouTube video plays muted. The sound comes from the song's tracks, mixed in the browser: each track has its own volume and mute. **Original** is the downloaded audio; once a song has split tracks, Original starts muted so it doesn't double them. Volume and mute settings are remembered per track type on that screen.
+- The song's YouTube video plays muted. The sound comes from the song's tracks, mixed in the browser: each track has its own volume and mute. It starts as karaoke: the **Instrumental** plays and the **Vocals** are muted. **Original** is the downloaded audio, muted once a song is split so it doesn't double the band. Volume and mute settings are remembered per track type on that screen.
 - The video follows the audio and is re-seeked if it drifts. If the owner doesn't allow embedding, the thumbnail is shown instead.
 
 Audio is served by the app (`/songs/<id>/audio/<track>`) to logged-in users, so the storage stays private.
@@ -49,6 +47,22 @@ Audio is served by the app (`/songs/<id>/audio/<track>`) to logged-in users, so 
 - Keyboard: Space, ←/→, `[`/`]`, `L`, `Esc`, `-`/`=`, `,`/`.`, `R`; `?` lists them.
 
 Loop, count-in, speed and key are remembered per song on that device, and the mixer has its own settings, apart from the queue player's.
+
+## Track splitting
+
+The processor splits songs with [audio-separator](https://github.com/nomadkaraoke/python-audio-separator), on the CPU. The original is decoded with ffmpeg, separated by a model, and every track is stored as Opus in WebM.
+
+| Pass | Model (default) | Tracks |
+|---|---|---|
+| Karaoke | `UVR_MDXNET_KARA_2.onnx` | `vocals`, `instrumental` |
+
+- The karaoke model removes the lead vocal and keeps backing vocals in the instrumental, like most karaoke tracks.
+- It takes time: on an 8-thread laptop CPU, about 1.2–1.6× the song's length, and up to 3.5 GB of memory. It runs under `nice`, so the web app stays responsive.
+- Models download on first use (about 70 MB for the karaoke one) into the `models` volume.
+- A pass that runs over 40 minutes, or gets killed (usually out of memory), fails the song like any other error.
+- To try another model, set `MINUSONE_KARAOKE_MODEL` to one from `audio-separator --list_models`.
+
+The models are trained by the [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) community.
 
 ## Running with Docker
 
@@ -116,10 +130,11 @@ The binary itself reads these. Compose sets them from `.env`; set them yourself 
 | `MINUSONE_S3_SECRET_KEY` | `minusone-secret` |
 | `MINUSONE_S3_BUCKET` | `minusone` |
 | `MINUSONE_S3_SSL` | `false` |
+| `MINUSONE_KARAOKE_MODEL` | `UVR_MDXNET_KARA_2.onnx` |
 
 ## Development
 
-Requirements: Go 1.26, Docker, and on your PATH: a recent [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) (yt-dlp uses it for YouTube's JavaScript challenges). Distribution packages of yt-dlp are usually too old for YouTube; install it with `pip install -U "yt-dlp[default]"`.
+Requirements: Go 1.26, Docker, and on your PATH: a recent [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) (yt-dlp uses it for YouTube's JavaScript challenges), ffmpeg, and audio-separator. Distribution packages of yt-dlp are usually too old for YouTube; install it with `pip install -U "yt-dlp[default]"`. For audio-separator, use Python 3.12 and a C compiler (one dependency builds from source): `pip install -r separator-requirements.txt`, in a virtualenv.
 
 Run Postgres and RustFS in Docker and the app on the host:
 

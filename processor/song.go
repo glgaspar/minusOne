@@ -29,9 +29,9 @@ type Song struct {
 }
 
 type Track struct {
-	Type      string // vocals, drums, bass, other...
+	Type      string // vocals, instrumental, drums, bass, guitar, piano, other
 	Extension string
-	Path      string // local file in WorkDir, written by SplitTracks
+	Path      string // local file in WorkDir, written by split
 	Key       string // object key in storage, set by UploadTracks
 	Size      int64
 }
@@ -108,15 +108,6 @@ func AudioContentType(ext string) string {
 		return "audio/wav"
 	}
 	return "application/octet-stream"
-}
-
-// SplitTracks separates the original into one file per instrument in WorkDir
-// and appends them to s.Tracks.
-//
-// TODO: run the separation (e.g. demucs on s.OriginalPath()). Until then a
-// song finishes with only its original.
-func (s *Song) SplitTracks(ctx context.Context) error {
-	return nil
 }
 
 // UploadTracks puts every split track into storage.

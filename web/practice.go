@@ -35,7 +35,7 @@ func (s *Server) practicePage(c echo.Context) error {
 	}
 	return c.Render(http.StatusOK, "practice.html", practicePage{
 		page: page{Title: title, User: currentUser(c)},
-		Song: newPlayerSong(song),
+		Song: newPlayerSong(song, true),
 	})
 }
 

@@ -101,11 +101,23 @@ function syncVideo(audioTime, playing, rate = 1) {
 
 // ---------------------------------------------------------------- mixer prefs
 
-// The original's preference depends on whether the song has split tracks:
-// alone it's the only sound, next to the stems it would double them.
-function prefKey(track, hasStems) {
-  if (track.type !== "original") return track.type;
-  return hasStems ? "original:with-tracks" : "original:alone";
+// backingOf says which way of playing the band a track is part of: the
+// original, the instrumental, or "stems" for the instruments. Playing two ways
+// at once doubles the band (web/player.go picks which one starts unmuted).
+function backingOf(type) {
+  return ["drums", "bass", "guitar", "piano", "other"].includes(type) ? "stems" : type;
+}
+
+// A preference depends on what else the song has: the original is the only
+// sound in a song that isn't split, and doubles the band in one that is. So
+// it's saved per track type and per set of backings the song has.
+function prefKey(track, shape) {
+  return `${track.type}:${shape}`;
+}
+
+function songShape(song) {
+  const ways = song.tracks.map((t) => backingOf(t.type)).filter((b) => b !== "vocals");
+  return [...new Set(ways)].sort().join("+");
 }
 
 // store is the localStorage key: the queue player and the practice page keep
@@ -137,7 +149,7 @@ function buildMixer(song, mixer, store, opts = {}) {
   const box = $("mixer");
   box.replaceChildren();
   const prefs = loadPrefs(store);
-  const hasStems = song.tracks.some((t) => t.type !== "original");
+  const shape = songShape(song);
   const rows = [];
   const anySolo = () => rows.some((r) => r.soloed);
   const applyAll = (immediate) => {
@@ -146,7 +158,7 @@ function buildMixer(song, mixer, store, opts = {}) {
   };
 
   for (const track of mixer.tracks) {
-    const key = prefKey(track, hasStems);
+    const key = prefKey(track, shape);
     const pref = { volume: 1, muted: track.muted, ...prefs[key] };
 
     const el = $("track-template").content.firstElementChild.cloneNode(true);

@@ -29,6 +29,8 @@ services:
       MINUSONE_S3_SSL: "false"
     ports:
       - "${MINUSONE_PORT:-8080}:8080"
+    volumes:
+      - models:/models
 
   db:
     image: postgres:17
@@ -70,3 +72,4 @@ services:
 volumes:
   pgdata:
   s3data:
+  models:

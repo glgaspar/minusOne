@@ -20,6 +20,7 @@ type config struct {
 	Addr        string                // MINUSONE_ADDR
 	DatabaseURL string                // built from MINUSONE_DB_*
 	Storage     processor.StoreConfig // MINUSONE_S3_*
+	Models      processor.Models      // MINUSONE_*_MODEL
 
 	// AllowRegistration lets anyone who can reach the server create an account.
 	// MINUSONE_REGISTRATION=closed turns it off once everyone has an account.
@@ -45,6 +46,10 @@ func loadConfig() (config, error) {
 			SecretKey: env("MINUSONE_S3_SECRET_KEY", "minusone-secret"),
 			Bucket:    env("MINUSONE_S3_BUCKET", "minusone"),
 			UseSSL:    env("MINUSONE_S3_SSL", "false") == "true",
+		},
+		Models: processor.Models{
+			Karaoke:  env("MINUSONE_KARAOKE_MODEL", "UVR_MDXNET_KARA_2.onnx"),
+			Learning: env("MINUSONE_LEARNING_MODEL", "htdemucs_6s.yaml"),
 		},
 	}
 
@@ -97,7 +102,7 @@ func run(ctx context.Context) error {
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return processor.Run(ctx, database, store) })
+	g.Go(func() error { return processor.Run(ctx, database, store, cfg.Models) })
 	g.Go(func() error {
 		server := web.New(database, store, web.Config{AllowRegistration: cfg.AllowRegistration})
 		log.Printf("listening on %s", cfg.Addr)
