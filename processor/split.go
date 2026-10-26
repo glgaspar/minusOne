@@ -128,18 +128,25 @@ func (s *Song) split(ctx context.Context, p pass) error {
 // a download cut short (a pass that gave way, a restart) would leave a broken
 // model for good. So each model downloads into a directory of its own, which
 // only gets its name once the download is complete.
+//
+// The base directory is MINUSONE_MODELS. Not the separator's own
+// AUDIO_SEPARATOR_MODEL_DIR: when that is set, it ignores --model_file_dir.
 func modelDir(ctx context.Context, model string) (string, error) {
-	base := os.Getenv("AUDIO_SEPARATOR_MODEL_DIR") // the separator's own setting
+	base := os.Getenv("MINUSONE_MODELS")
 	if base == "" {
-		base = filepath.Join(os.TempDir(), "audio-separator-models")
+		base = filepath.Join(os.TempDir(), "minusone-models")
 	}
 	dir := filepath.Join(base, model)
-	if _, err := os.Stat(dir); err == nil {
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		return dir, nil
 	}
+	// not downloaded, or a file of the same name left by the separator's own
+	// flat layout
 	partial := dir + ".download"
-	if err := os.RemoveAll(partial); err != nil {
-		return "", err
+	for _, path := range []string{dir, partial} {
+		if err := os.RemoveAll(path); err != nil {
+			return "", err
+		}
 	}
 	if err := run(ctx, "audio-separator", "--download_model_only", "--model_filename", model,
 		"--model_file_dir", partial, "--log_level", "warning"); err != nil {

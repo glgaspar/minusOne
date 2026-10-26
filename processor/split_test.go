@@ -13,7 +13,7 @@ import (
 // name in --custom_output_names, except a stem named in $SKIP, or fails with
 // $FAIL as its last words.
 func fakeTools(t *testing.T) {
-	t.Setenv("AUDIO_SEPARATOR_MODEL_DIR", t.TempDir())
+	t.Setenv("MINUSONE_MODELS", t.TempDir())
 	dir := t.TempDir()
 	scripts := map[string]string{
 		"ffmpeg": `for out; do :; done; echo audio > "$out"`,
@@ -46,10 +46,13 @@ done`,
 func TestModelsDownloadOnceAndWhole(t *testing.T) {
 	fakeTools(t)
 	base := t.TempDir()
-	t.Setenv("AUDIO_SEPARATOR_MODEL_DIR", base)
+	t.Setenv("MINUSONE_MODELS", base)
 
-	// a download cut short last time
+	// a download cut short last time, and a file in the model's place
 	if err := os.MkdirAll(filepath.Join(base, "k.onnx.download"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "k.onnx"), []byte("half a model"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := modelDir(context.Background(), "k.onnx")

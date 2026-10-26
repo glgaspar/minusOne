@@ -42,7 +42,7 @@ RUN useradd --system --uid 10001 --no-create-home minusone
 # The separation models (~120 MB) download on first use into a volume, so only
 # once. The user has no home: caches go there too.
 RUN mkdir /models && chown minusone /models
-ENV AUDIO_SEPARATOR_MODEL_DIR=/models XDG_CACHE_HOME=/models/.cache
+ENV MINUSONE_MODELS=/models XDG_CACHE_HOME=/models/.cache
 COPY --from=build /out/minusone /usr/local/bin/minusone
 
 USER minusone
