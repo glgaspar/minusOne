@@ -156,7 +156,8 @@ async function heartbeat() {
 function report() {
   if (!isOwner || !current) return { itemId: null, paused: true, position: 0 };
   const mixer = current.mixer;
-  if (!mixer) return { itemId: current.song.itemId, paused: true, position: current.startAt };
+  // still loading: what it will do once loaded, so a takeover meanwhile does the same
+  if (!mixer) return { itemId: current.song.itemId, paused: current.startPaused, position: current.startAt };
   return { itemId: current.song.itemId, paused: !mixer.playing, position: mixer.time() };
 }
 
@@ -193,7 +194,7 @@ async function loadSong(song, resume) {
   const token = ++loadToken;
   idle = false;
   current?.mixer?.destroy();
-  current = { song, mixer: null, finishing: false, startAt: resume?.position ?? 0 };
+  current = { song, mixer: null, finishing: false, startAt: resume?.position ?? 0, startPaused: Boolean(resume?.paused) };
 
   $("np-title").textContent = song.title || "Untitled";
   $("np-author").textContent = song.author || "";
