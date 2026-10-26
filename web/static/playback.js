@@ -261,3 +261,35 @@ function lyricLineAt(lines, t) {
 function setText(el, text) {
   if (el.textContent !== text) el.textContent = text;
 }
+
+// showLyricLine puts a line in el: a span per word when the words are timed,
+// for markSung to light up. Nothing changes if el already shows it.
+function showLyricLine(el, line) {
+  if (el.line === line) return;
+  el.line = line;
+  el.sung = 0;
+  el.replaceChildren();
+  if (!line) return;
+  if (!line.words?.length) {
+    el.textContent = line.text;
+    return;
+  }
+  line.words.forEach((word, i) => {
+    if (i) el.append(" ");
+    const span = document.createElement("span");
+    span.className = "word";
+    span.textContent = word.text;
+    el.append(span);
+  });
+}
+
+// markSung lights up the words of el's line sung by time t.
+function markSung(el, t) {
+  const words = el.line?.words;
+  if (!words) return;
+  let sung = 0;
+  while (sung < words.length && words[sung].start <= t) sung++;
+  if (el.sung === sung) return;
+  el.sung = sung;
+  el.querySelectorAll(".word").forEach((span, i) => span.classList.toggle("sung", i < sung));
+}

@@ -140,8 +140,10 @@ func finish(ctx context.Context, database *db.DB, song *Song, jobErr error, atte
 	}
 }
 
-// ProcessLearning splits a Ready song into instruments. A song from before
-// tracks were split gets its karaoke tracks first.
+// ProcessLearning prepares a Ready song for practicing: it times its lyrics
+// word by word and splits it into instruments. A song from before tracks were
+// split gets its karaoke tracks first. Each step that's already done is
+// skipped, so a pass that gave way picks up where it stopped.
 func (s *Song) ProcessLearning(ctx context.Context, database *db.DB, store *Store, models Models) error {
 	workDir, err := os.MkdirTemp("", "minusone-"+s.ID+"-")
 	if err != nil {
@@ -157,13 +159,22 @@ func (s *Song) ProcessLearning(ctx context.Context, database *db.DB, store *Stor
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(stored.Tracks, func(t db.Track) bool { return t.Type == "vocals" }) {
+	has := func(trackType string) bool {
+		return slices.ContainsFunc(stored.Tracks, func(t db.Track) bool { return t.Type == trackType })
+	}
+	if !has("vocals") {
 		if err := s.splitAndSave(ctx, karaokePass(models), database, store); err != nil {
 			return err
 		}
 		s.Tracks = nil
 	}
 	s.lookUpLyrics(ctx, database)
+	if err := s.alignLyrics(ctx, database, store); err != nil {
+		return err
+	}
+	if has("drums") {
+		return nil // split before; the pass ran again for the lyrics
+	}
 	return s.splitAndSave(ctx, learningPass(models), database, store)
 }
 
@@ -195,15 +206,15 @@ func runLearning(ctx context.Context, database *db.DB, store *Store, models Mode
 	jobErr := song.ProcessLearning(passCtx, database, store, models)
 	switch {
 	case jobErr == nil:
-		log.Printf("split the instruments of %s (%s)", song.ID, song.Title)
+		log.Printf("prepared %s for practice (%s)", song.ID, song.Title)
 		return database.MarkLearningDone(ctx, song.ID)
 
 	case yielded.Load() || ctx.Err() != nil:
-		log.Printf("set aside the instruments of %s, requeueing", song.ID)
+		log.Printf("set aside preparing %s for practice, requeueing", song.ID)
 		return database.RequeueLearning(context.WithoutCancel(ctx), song.ID)
 
 	default:
-		log.Printf("splitting the instruments of %s failed (attempt %d/%d): %v", song.ID, job.Attempts, maxAttempts, jobErr)
+		log.Printf("preparing %s for practice failed (attempt %d/%d): %v", song.ID, job.Attempts, maxAttempts, jobErr)
 		return database.MarkLearningFailed(ctx, song.ID, jobErr, maxAttempts)
 	}
 }

@@ -404,8 +404,9 @@ function drawLyrics() {
   const i = lyricLineAt(lines, t + LYRICS_LEAD_S);
   const line = i >= 0 && t < lines[i].end ? lines[i] : null;
   const next = lines[i + 1] && lines[i + 1].start - t < NEXT_LINE_S ? lines[i + 1] : null;
-  setText($("lyrics-current"), line?.text ?? "");
-  setText($("lyrics-next"), next?.text ?? "");
+  showLyricLine($("lyrics-current"), line);
+  markSung($("lyrics-current"), t);
+  showLyricLine($("lyrics-next"), next);
   box.hidden = !line && !next;
 }
 

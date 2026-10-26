@@ -205,20 +205,27 @@ func (s *Song) fetchOriginal(ctx context.Context, store *Store) error {
 // run runs a command and turns a failure into the last line it wrote to
 // stderr, which is where these tools say what went wrong.
 func run(ctx context.Context, name string, args ...string) error {
-	var stderr bytes.Buffer
+	_, err := output(ctx, name, args...)
+	return err
+}
+
+// output is run, returning what the command wrote to stdout.
+func output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && exit.ProcessState.Sys().(syscall.WaitStatus).Signaled() && ctx.Err() == nil {
 			// stderr ends in a progress bar then; the kernel killing it for
 			// memory is the usual reason
-			return fmt.Errorf("%s was killed (out of memory?)", name)
+			return nil, fmt.Errorf("%s was killed (out of memory?)", name)
 		}
 		if msg := lastLine(stderr.String()); msg != "" {
-			return errors.New(msg)
+			return nil, errors.New(msg)
 		}
-		return fmt.Errorf("running %s: %w", name, err)
+		return nil, fmt.Errorf("running %s: %w", name, err)
 	}
-	return nil
+	return stdout.Bytes(), nil
 }

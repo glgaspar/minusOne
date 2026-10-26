@@ -48,6 +48,8 @@ let mixer = null; // buildMixer's controls
 let markers = []; // [{ id, label, start, end }], in song order
 let recording = null; // { stream, source } while recording
 let take = null; // { samples, start, tempo, semitones, url } of the last recording
+let lyrics = null; // the song's timed lyrics (db.Lyrics), once loaded
+let lyricsScrolledAt = 0; // when the user last scrolled the lyrics themselves
 
 // ---------------------------------------------------------------- engine
 
@@ -646,6 +648,63 @@ $("take-offset").addEventListener("change", () => {
   engine.send({ type: "takeOffset", seconds: Number($("take-offset").value) / 1000 });
 });
 
+// ---------------------------------------------------------------- lyrics
+
+const LYRICS_FOLLOW_PAUSE_MS = 5000; // the list stops following the song while the user scrolls it
+
+async function loadLyrics() {
+  lyrics = await fetchLyrics(song.songId);
+  if (!lyrics?.lines?.length) return;
+  const list = $("lyrics-lines");
+  for (const line of lyrics.lines) {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "line-text";
+    showLyricLine(text, line);
+    text.addEventListener("click", () => seekTo(line.start));
+    const loop = document.createElement("button");
+    loop.type = "button";
+    loop.className = "icon-link";
+    loop.textContent = "⟲";
+    loop.title = "Loop this line";
+    loop.setAttribute("aria-label", `Loop "${line.text}"`);
+    loop.addEventListener("click", () => {
+      setLoop({ a: Math.max(line.start - 0.3, 0), b: line.end }, true);
+      seekTo(Math.max(line.start - 0.3, 0));
+    });
+    li.append(text, loop);
+    list.append(li);
+  }
+  $("lyrics-source").textContent = lyrics.wordSynced ? "from LRCLIB, timed to the vocals" : "from LRCLIB, timed by line";
+  $("lyrics-panel").hidden = false;
+}
+
+// drawLyrics highlights the line being sung, and its words, and keeps it in view.
+function drawLyrics() {
+  if (!lyrics?.lines?.length) return;
+  const t = engine.time();
+  const i = lyricLineAt(lyrics.lines, t);
+  const items = $("lyrics-lines").children;
+  const current = i >= 0 && t < lyrics.lines[i].end ? i : -1;
+  if (current !== drawLyrics.current) {
+    // only the line being sung shows its sung words
+    const previous = items[drawLyrics.current];
+    if (previous) markSung(previous.firstChild, -1);
+    previous?.classList.remove("is-current");
+    items[current]?.classList.add("is-current");
+    drawLyrics.current = current;
+    const li = items[Math.max(current, i, 0)];
+    const list = $("lyrics-lines");
+    if (li && Date.now() - lyricsScrolledAt > LYRICS_FOLLOW_PAUSE_MS) {
+      list.scrollTop = li.offsetTop - list.offsetTop - list.clientHeight / 3;
+    }
+  }
+  if (current >= 0) markSung(items[current].firstChild, t);
+}
+
+$("lyrics-lines").addEventListener("wheel", () => (lyricsScrolledAt = Date.now()), { passive: true });
+$("lyrics-lines").addEventListener("touchmove", () => (lyricsScrolledAt = Date.now()), { passive: true });
+
 // ---------------------------------------------------------------- presets
 
 function setupPresets() {
@@ -718,6 +777,7 @@ async function start() {
   setLoop(settings.loop);
   setStretch(settings.speed, settings.key);
   loadMarkers();
+  loadLyrics();
   requestAnimationFrame(frame);
   setInterval(() => syncVideo(engine.time(), engine.playing && !engine.isCounting(), engine.tempo), SYNC_MS);
 }
@@ -726,6 +786,7 @@ function frame() {
   updateTime();
   updatePlayButton();
   drawWaveform();
+  drawLyrics();
   requestAnimationFrame(frame);
 }
 

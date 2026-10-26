@@ -14,9 +14,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # The track splitter's packages, built where there's a compiler (diffq has no
 # wheel for this Python), so the runtime image doesn't need one.
 FROM python:3.12-bookworm AS separator
-COPY separator-requirements.txt .
+COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel -r separator-requirements.txt -w /wheels
+    pip wheel -r requirements.txt -w /wheels
 
 # Python for yt-dlp and the track splitter.
 FROM python:3.12-slim-bookworm
@@ -26,8 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=bind,from=separator,source=/wheels,target=/wheels \
-    --mount=type=bind,source=separator-requirements.txt,target=/tmp/separator-requirements.txt \
-    pip install --no-cache-dir --no-index --find-links /wheels -r /tmp/separator-requirements.txt
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    pip install --no-cache-dir --no-index --find-links /wheels -r /tmp/requirements.txt
 
 # YouTube breaks older yt-dlp versions regularly. When downloads start failing,
 # bump this (https://github.com/yt-dlp/yt-dlp/releases) and rebuild.
@@ -44,6 +44,7 @@ RUN useradd --system --uid 10001 --no-create-home minusone
 RUN mkdir /models && chown minusone /models
 ENV MINUSONE_MODELS=/models XDG_CACHE_HOME=/models/.cache
 COPY --from=build /out/minusone /usr/local/bin/minusone
+COPY --chmod=755 analysis/analyze.py /usr/local/bin/minusone-analyze
 
 USER minusone
 ENV MINUSONE_ADDR=:8080

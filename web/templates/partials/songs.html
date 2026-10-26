@@ -22,8 +22,8 @@
     </div>
     {{if eq .Status "failed"}}{{with .LastError}}<div class="error small">{{.}}</div>{{end}}{{end}}
     {{if eq .Status "done"}}
-      {{if eq .LearningStatus "processing"}}<div class="small muted">Splitting the instruments for practice…</div>
-      {{else if eq .LearningStatus "failed"}}<div class="error small">Couldn't split the instruments{{with .LearningError}}: {{.}}{{end}}</div>{{end}}
+      {{if eq .LearningStatus "processing"}}<div class="small muted">Preparing it for practice: timing the lyrics, splitting the instruments…</div>
+      {{else if eq .LearningStatus "failed"}}<div class="error small">Couldn't prepare it for practice{{with .LearningError}}: {{.}}{{end}}</div>{{end}}
     {{end}}
   </div>
   <span class="badge badge-{{.Status}}">{{statusLabel .Status}}</span>

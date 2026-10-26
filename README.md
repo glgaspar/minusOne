@@ -58,9 +58,9 @@ The processor splits songs with [audio-separator](https://github.com/nomadkaraok
 | Learning | when no song waits for its karaoke pass | `htdemucs_6s.yaml` (Demucs) | `drums`, `bass`, `guitar`, `piano`, `other` |
 
 - The karaoke model removes the lead vocal and keeps backing vocals in the instrumental, like most karaoke tracks. The learning model's own vocals are dropped: the karaoke ones are cleaner.
-- A learning pass gives way: if a song is added while one runs, it stops and is requeued, and the new song's karaoke pass goes first. The catalog shows when a song's instruments are being split, and **Retry** if that failed.
+- A learning pass gives way: if a song is added while one runs, it stops and is requeued, and the new song's karaoke pass goes first. The catalog shows when a song is being prepared for practice, and **Retry** if that failed.
 - It takes time: on an 8-thread laptop CPU, the karaoke pass takes about 1.2–1.6× the song's length and up to 3.5 GB of memory; the learning pass about 2–3× and up to 4.5 GB. Both run under `nice`, so the web app stays responsive.
-- Models download on first use (about 120 MB) into the `models` volume.
+- Models download on first use (about 120 MB, plus 1.2 GB for timing lyrics) into the `models` volume.
 - A pass that runs over 40 minutes, or gets killed (usually out of memory), fails like any other error.
 - Songs that were Ready before splitting existed get their tracks through the learning pass, karaoke tracks first, and stay playable meanwhile.
 - To try other models, set `MINUSONE_KARAOKE_MODEL` / `MINUSONE_LEARNING_MODEL` to ones from `audio-separator --list_models`.
@@ -74,6 +74,9 @@ Once a song's karaoke pass is done, the processor looks its lyrics up on [LRCLIB
 - The search terms come from the video's title and channel: "Artist - Title (Official Video)" becomes artist and title, and "(Ao Vivo)", "[HD]", "ft. …" and the like are dropped.
 - Of the entries found, it takes the one closest in length to the song (within 15 s), with at least a few timed lines. Entries can be wrong or for another version of the song; the timing of an entry is that version's.
 - If LRCLIB has nothing, or can't be reached, the song is Ready anyway, and the learning pass tries again.
+- The learning pass then times the lyrics **word by word** against the song's own vocals track, with [ctc-forced-aligner](https://github.com/deskpai/ctc_forced_aligner) (an ONNX build of Meta's multilingual MMS alignment model, licensed CC-BY-NC 4.0: fine for a home server, not for anything commercial): the player lights the words up as they're sung. It uses the words, not LRCLIB's times, so lyrics timed for another version of the song (a longer intro) still line up. It takes about 0.6× the song's length and up to 4.5 GB of memory; the model (1.2 GB) downloads on first use.
+- If the words don't fit the vocals (another song's lyrics, say), the line timing stays as it was.
+- The practice page lists the lyrics: the line being sung is highlighted, a click on a line plays from there, and ⟲ loops it.
 
 Lyrics are copyrighted: they're shown here for the people using your server, like the songs themselves.
 
@@ -148,7 +151,7 @@ The binary itself reads these. Compose sets them from `.env`; set them yourself 
 
 ## Development
 
-Requirements: Go 1.26, Docker, and on your PATH: a recent [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) (yt-dlp uses it for YouTube's JavaScript challenges), ffmpeg, and audio-separator. Distribution packages of yt-dlp are usually too old for YouTube; install it with `pip install -U "yt-dlp[default]"`. For audio-separator, use Python 3.12 and a C compiler (one dependency builds from source): `pip install -r separator-requirements.txt`, in a virtualenv.
+Requirements: Go 1.26, Docker, and on your PATH: a recent [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) (yt-dlp uses it for YouTube's JavaScript challenges), ffmpeg, audio-separator, and `minusone-analyze` (`analysis/analyze.py`, linked or copied onto your PATH). Distribution packages of yt-dlp are usually too old for YouTube; install it with `pip install -U "yt-dlp[default]"`. For those two, use Python 3.12 and a C/C++ compiler (some dependencies build from source): `pip install -r requirements.txt`, in a virtualenv.
 
 Run Postgres and RustFS in Docker and the app on the host:
 
