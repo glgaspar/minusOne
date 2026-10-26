@@ -61,6 +61,7 @@ func (s *Server) routes() {
 	app.POST("/songs/:id/retry", s.retrySong)
 	app.DELETE("/songs/:id", s.deleteSong)
 	app.GET("/songs/:id/audio/:track", s.songAudio)
+	app.GET("/songs/:id/lyrics", s.songLyrics)
 
 	app.GET("/practice/:id", s.practicePage)
 	app.GET("/songs/:id/markers", s.listMarkers)

@@ -64,13 +64,9 @@ func (s *Song) split(ctx context.Context, p pass) error {
 	ctx, cancel := context.WithTimeout(ctx, passTimeout)
 	defer cancel()
 
-	// Decoded first: the separator's own decoding doesn't read every format
-	// YouTube serves (webm, for one). 44.1 kHz is what the models work at;
-	// float keeps peaks above 0 dB.
-	input := filepath.Join(s.WorkDir, "input.wav")
-	if err := run(ctx, "ffmpeg", "-v", "error", "-y", "-i", s.OriginalPath(),
-		"-ar", "44100", "-ac", "2", "-c:a", "pcm_f32le", input); err != nil {
-		return fmt.Errorf("decoding the original: %w", err)
+	input, err := s.decodeOriginal(ctx)
+	if err != nil {
+		return err
 	}
 
 	names, err := json.Marshal(p.stems)
@@ -121,6 +117,27 @@ func (s *Song) split(ctx context.Context, p pass) error {
 		s.Tracks = append(s.Tracks, track)
 	}
 	return nil
+}
+
+// decodeOriginal decodes the original in WorkDir to input.wav, once per job,
+// and sets s.Duration. The separator's own decoding doesn't read every format
+// YouTube serves (webm, for one). 44.1 kHz is what the models work at; float
+// keeps peaks above 0 dB.
+func (s *Song) decodeOriginal(ctx context.Context) (string, error) {
+	input := filepath.Join(s.WorkDir, "input.wav")
+	if _, err := os.Stat(input); err != nil {
+		if err := run(ctx, "ffmpeg", "-v", "error", "-y", "-i", s.OriginalPath(),
+			"-ar", "44100", "-ac", "2", "-c:a", "pcm_f32le", input); err != nil {
+			return "", fmt.Errorf("decoding the original: %w", err)
+		}
+	}
+	info, err := os.Stat(input)
+	if err != nil {
+		return "", err
+	}
+	// 44.1 kHz, 2 channels of 4 bytes, after a header of a few dozen bytes
+	s.Duration = float64(info.Size()) / (44100 * 2 * 4)
+	return input, nil
 }
 
 // modelDir returns the directory holding a model's files, downloading them the

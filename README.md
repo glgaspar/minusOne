@@ -67,6 +67,16 @@ The processor splits songs with [audio-separator](https://github.com/nomadkaraok
 
 The models are trained by the [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) community.
 
+## Lyrics
+
+Once a song's karaoke pass is done, the processor looks its lyrics up on [LRCLIB](https://lrclib.net), a free, community-made database of lyrics timed line by line. The player shows them over the video (the **Lyrics** button turns them off on that screen).
+
+- The search terms come from the video's title and channel: "Artist - Title (Official Video)" becomes artist and title, and "(Ao Vivo)", "[HD]", "ft. …" and the like are dropped.
+- Of the entries found, it takes the one closest in length to the song (within 15 s), with at least a few timed lines. Entries can be wrong or for another version of the song; the timing of an entry is that version's.
+- If LRCLIB has nothing, or can't be reached, the song is Ready anyway, and the learning pass tries again.
+
+Lyrics are copyrighted: they're shown here for the people using your server, like the songs themselves.
+
 ## Running with Docker
 
 Requirements: Docker with Compose v2.

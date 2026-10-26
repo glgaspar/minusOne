@@ -17,6 +17,9 @@
 const POLL_MS = 3000;
 const TICK_MS = 250;
 const PREFS_KEY = "minusone.mixer";
+const LYRICS_KEY = "minusone.lyrics";
+const LYRICS_LEAD_S = 0.15; // a line shows a moment before it's sung
+const NEXT_LINE_S = 8; // the next line shows when it's this close
 
 let audioCtx = null;
 let current = null; // { song, mixer, finishing }
@@ -27,6 +30,7 @@ let isOwner = false; // this device plays the queue
 let claimNext = false; // the next poll takes the player if it's free
 let lastState = null; // the last poll's answer
 let polling = false;
+let showLyrics = loadLyricsPref();
 
 // ---------------------------------------------------------------- audio
 
@@ -201,6 +205,9 @@ async function loadSong(song, resume) {
   $("mixer").hidden = true;
   setControlsEnabled(false);
   $("skip").disabled = false;
+  fetchLyrics(song.songId).then((lyrics) => {
+    if (current?.song === song) current.lyrics = lyrics;
+  });
   updateTime(0, 0);
   cueVideo(song.videoId);
 
@@ -365,6 +372,48 @@ function hideMessage() {
   $("screen-message").hidden = true;
 }
 
+// ---------------------------------------------------------------- lyrics
+
+function loadLyricsPref() {
+  try {
+    return localStorage.getItem(LYRICS_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function toggleLyrics() {
+  showLyrics = !showLyrics;
+  $("lyrics-toggle").setAttribute("aria-pressed", String(showLyrics));
+  try {
+    localStorage.setItem(LYRICS_KEY, showLyrics ? "on" : "off");
+  } catch {}
+}
+
+// drawLyrics shows the line being sung and the next one over the video.
+function drawLyrics() {
+  const box = $("lyrics");
+  const lyrics = current?.lyrics;
+  const mixer = current?.mixer;
+  if (!showLyrics || !isOwner || !mixer || !lyrics?.lines?.length) {
+    box.hidden = true;
+    return;
+  }
+  const t = mixer.time();
+  const lines = lyrics.lines;
+  const i = lyricLineAt(lines, t + LYRICS_LEAD_S);
+  const line = i >= 0 && t < lines[i].end ? lines[i] : null;
+  const next = lines[i + 1] && lines[i + 1].start - t < NEXT_LINE_S ? lines[i + 1] : null;
+  setText($("lyrics-current"), line?.text ?? "");
+  setText($("lyrics-next"), next?.text ?? "");
+  box.hidden = !line && !next;
+}
+
+function frame() {
+  drawLyrics();
+  requestAnimationFrame(frame);
+}
+
 function tick() {
   const mixer = current?.mixer;
   if (!mixer) return;
@@ -434,7 +483,11 @@ $("seek").addEventListener("change", () => {
 
 $("skip").addEventListener("click", finish);
 
+$("lyrics-toggle").setAttribute("aria-pressed", String(showLyrics));
+$("lyrics-toggle").addEventListener("click", toggleLyrics);
+
 loadYouTubeAPI();
+requestAnimationFrame(frame);
 poll();
 setInterval(poll, POLL_MS);
 setInterval(tick, TICK_MS);

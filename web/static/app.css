@@ -201,6 +201,15 @@ main:has(.player-page) { max-width: 1280px; }
   color: #fff; background: rgb(0 0 0 / 0.65);
 }
 .screen-overlay[hidden] { display: none; }
+/* karaoke lyrics over the bottom of the video */
+.lyrics-overlay {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 56px 24px 18px; text-align: center; pointer-events: none;
+  color: #fff; background: linear-gradient(transparent, rgb(0 0 0 / 0.75));
+}
+.lyrics-overlay[hidden] { display: none; }
+.lyrics-current { min-height: 1.3em; font-size: clamp(1.1rem, 3.2vw, 2.4rem); font-weight: 700; line-height: 1.25; text-shadow: 0 2px 8px rgb(0 0 0 / 0.8); }
+.lyrics-next { min-height: 1.3em; margin-top: 4px; font-size: clamp(0.9rem, 2.2vw, 1.5rem); opacity: 0.7; text-shadow: 0 2px 6px rgb(0 0 0 / 0.8); }
 .screen-overlay p { margin: 0; opacity: 0.8; white-space: pre-line; }
 button.big { padding: 12px 24px; font-size: 1.1rem; }
 

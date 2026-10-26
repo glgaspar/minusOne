@@ -45,6 +45,16 @@ window.onYouTubeIframeAPIReady = () => {
         yt.mute();
         if (cuedVideoId) yt.cueVideoById(cuedVideoId);
       },
+      // YouTube's own captions would sit under the lyrics. The embed API has
+      // no setting to turn them off, but unloading the module once the video
+      // plays does.
+      onStateChange: (e) => {
+        if (e.data !== YT.PlayerState.PLAYING) return;
+        try {
+          yt.unloadModule("captions");
+          yt.unloadModule("cc");
+        } catch {}
+      },
       // 101/150: the owner doesn't allow embedding; 100: removed. The audio
       // doesn't depend on the video, so show the thumbnail and carry on.
       onError: () => {
@@ -214,4 +224,40 @@ function buildMixer(song, mixer, store, opts = {}) {
       applyAll();
     },
   };
+}
+
+// ---------------------------------------------------------------- lyrics
+
+// fetchLyrics returns a song's timed lyrics (see db.Lyrics), or null while it
+// has none.
+async function fetchLyrics(songId) {
+  try {
+    const res = await fetch(`/songs/${songId}/lyrics`, { headers: { Accept: "application/json" } });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+// lyricLineAt returns the index of the last line that started by t, or -1.
+function lyricLineAt(lines, t) {
+  let lo = 0;
+  let hi = lines.length - 1;
+  let at = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid].start <= t) {
+      at = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return at;
+}
+
+// setText changes an element's text only when it differs: lyrics are redrawn
+// every frame.
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
 }

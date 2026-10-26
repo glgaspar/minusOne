@@ -65,6 +65,9 @@ func newSong(job *db.Song) *Song {
 	if job.Title != nil {
 		song.Title = *job.Title
 	}
+	if job.Author != nil {
+		song.Author = *job.Author
+	}
 	return song
 }
 
@@ -92,7 +95,32 @@ func (s *Song) Process(ctx context.Context, database *db.DB, store *Store, model
 			return err
 		}
 	}
-	return s.splitAndSave(ctx, karaokePass(models), database, store)
+	if err := s.splitAndSave(ctx, karaokePass(models), database, store); err != nil {
+		return err
+	}
+	s.lookUpLyrics(ctx, database)
+	return nil
+}
+
+// lookUpLyrics finds the song's lyrics, unless it has them. They're a bonus:
+// not finding them, or LRCLIB being down, doesn't fail the song, and the
+// learning pass tries again.
+func (s *Song) lookUpLyrics(ctx context.Context, database *db.DB) {
+	var lyrics db.Lyrics
+	if err := database.GetAnnotation(ctx, s.ID, db.LyricsKind, &lyrics); err == nil {
+		return
+	}
+	if _, err := s.decodeOriginal(ctx); err != nil {
+		log.Printf("looking up lyrics for %s: %v", s.ID, err)
+		return
+	}
+	found, err := s.findLyrics(ctx, database)
+	switch {
+	case err != nil:
+		log.Printf("looking up lyrics for %s: %v", s.ID, err)
+	case !found:
+		log.Printf("no lyrics found for %s (%s)", s.ID, s.Title)
+	}
 }
 
 func finish(ctx context.Context, database *db.DB, song *Song, jobErr error, attempt int) error {
@@ -135,6 +163,7 @@ func (s *Song) ProcessLearning(ctx context.Context, database *db.DB, store *Stor
 		}
 		s.Tracks = nil
 	}
+	s.lookUpLyrics(ctx, database)
 	return s.splitAndSave(ctx, learningPass(models), database, store)
 }
 

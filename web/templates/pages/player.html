@@ -9,6 +9,10 @@
     <div class="screen">
       <div id="yt-player"></div>
       <img id="cover" class="cover" alt="" hidden>
+      <div class="lyrics-overlay" id="lyrics" aria-live="off" hidden>
+        <div class="lyrics-current" id="lyrics-current"></div>
+        <div class="lyrics-next" id="lyrics-next"></div>
+      </div>
       <div class="screen-overlay" id="start-overlay">
         <button type="button" class="primary big" id="start-button">▶ Start player</button>
         <p id="start-text">Loading…</p>
@@ -33,6 +37,7 @@
       <input type="range" id="seek" min="0" max="0" step="0.1" value="0" aria-label="Position" disabled>
       <span class="time" id="time-total">0:00</span>
       <button type="button" id="skip" disabled>Skip ⏭</button>
+      <button type="button" id="lyrics-toggle" class="toggle" aria-pressed="true" title="Show the lyrics over the video">Lyrics</button>
       <button type="button" id="release" title="Let another device play the queue">Stop here</button>
     </div>
 

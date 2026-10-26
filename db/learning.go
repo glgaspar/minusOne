@@ -27,10 +27,10 @@ func (d *DB) ClaimLearning(ctx context.Context, staleAfter time.Duration) (*Song
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, source_url, learning_attempts, original_key, extension, title`, staleAfter.Seconds())
+		RETURNING id, source_url, learning_attempts, original_key, extension, title, author`, staleAfter.Seconds())
 
 	s := &Song{}
-	if err := row.Scan(&s.ID, &s.SourceURL, &s.Attempts, &s.OriginalKey, &s.Extension, &s.Title); err != nil {
+	if err := row.Scan(&s.ID, &s.SourceURL, &s.Attempts, &s.OriginalKey, &s.Extension, &s.Title, &s.Author); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNoJob
 		}

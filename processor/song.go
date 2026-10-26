@@ -19,6 +19,7 @@ type Song struct {
 	URL         string
 	Title       string
 	Author      string
+	Duration    float64 // seconds, known once the original is decoded
 	Extension   string
 	OriginalKey string
 

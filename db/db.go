@@ -178,10 +178,10 @@ func (d *DB) ClaimNext(ctx context.Context, staleAfter time.Duration) (*Song, er
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, source_url, attempts, original_key, extension, title`, staleAfter.Seconds())
+		RETURNING id, source_url, attempts, original_key, extension, title, author`, staleAfter.Seconds())
 
 	s := &Song{Status: "processing"}
-	if err := row.Scan(&s.ID, &s.SourceURL, &s.Attempts, &s.OriginalKey, &s.Extension, &s.Title); err != nil {
+	if err := row.Scan(&s.ID, &s.SourceURL, &s.Attempts, &s.OriginalKey, &s.Extension, &s.Title, &s.Author); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNoJob
 		}
