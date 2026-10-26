@@ -22,18 +22,21 @@ type DB struct {
 }
 
 type Song struct {
-	ID          string    `json:"id"`
-	SourceURL   string    `json:"url"`
-	Title       *string   `json:"title"`
-	Author      *string   `json:"author"`
-	OriginalKey *string   `json:"-"`
-	Extension   *string   `json:"extension"`
-	Status      string    `json:"status"`
-	Attempts    int       `json:"attempts"`
-	LastError   *string   `json:"lastError,omitempty"`
-	AddedBy     *string   `json:"addedBy,omitempty"` // username
-	CreatedAt   time.Time `json:"createdAt"`
-	Tracks      []Track   `json:"tracks"`
+	ID          string  `json:"id"`
+	SourceURL   string  `json:"url"`
+	Title       *string `json:"title"`
+	Author      *string `json:"author"`
+	OriginalKey *string `json:"-"`
+	Extension   *string `json:"extension"`
+	Status      string  `json:"status"`
+	Attempts    int     `json:"attempts"`
+	LastError   *string `json:"lastError,omitempty"`
+	AddedBy     *string `json:"addedBy,omitempty"` // username
+	// the learning pass's queue state (see ClaimLearning)
+	LearningStatus string    `json:"learningStatus"`
+	LearningError  *string   `json:"learningError,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	Tracks         []Track   `json:"tracks"`
 }
 
 type Track struct {
@@ -109,7 +112,8 @@ func (d *DB) CreateSong(ctx context.Context, sourceURL, addedBy string) (string,
 
 const songColumns = `
 	s.id, s.source_url, s.title, s.author, s.original_key, s.extension,
-	s.status, s.attempts, s.last_error, u.username, s.created_at`
+	s.status, s.attempts, s.last_error, u.username, s.created_at,
+	s.learning_status, s.learning_error`
 
 func scanSong(row pgx.Row) (*Song, error) {
 	s := &Song{Tracks: []Track{}}
@@ -125,7 +129,9 @@ func scanSong(row pgx.Row) (*Song, error) {
 		&s.Attempts,
 		&s.LastError,
 		&s.AddedBy,
-		&s.CreatedAt)
+		&s.CreatedAt,
+		&s.LearningStatus,
+		&s.LearningError)
 
 	return s, err
 }
@@ -210,9 +216,12 @@ func (d *DB) AddTrack(ctx context.Context, t Track) error {
 	return nil
 }
 
+// MarkDone makes a song Ready and queues its learning pass.
 func (d *DB) MarkDone(ctx context.Context, songID string) error {
 	_, err := d.pool.Exec(ctx, `
-		UPDATE songs SET status = 'done', locked_at = NULL, last_error = NULL, updated_at = now()
+		UPDATE songs
+		SET status = 'done', locked_at = NULL, last_error = NULL,
+		    learning_status = 'pending', learning_attempts = 0, learning_error = NULL, updated_at = now()
 		WHERE id = $1`, songID)
 	return err
 }
@@ -270,11 +279,12 @@ func isInvalidUUID(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
 }
 
-// DeleteSong removes a song and its tracks. Songs being processed can't be
-// deleted (ErrSongBusy): the worker would keep uploading files for a song
-// that no longer exists. The caller removes the files from storage.
+// DeleteSong removes a song and its tracks. Songs being processed, either
+// pass, can't be deleted (ErrSongBusy): the worker would keep uploading files
+// for a song that no longer exists. The caller removes the files from storage.
 func (d *DB) DeleteSong(ctx context.Context, id string) error {
-	tag, err := d.pool.Exec(ctx, `DELETE FROM songs WHERE id = $1 AND status <> 'processing'`, id)
+	tag, err := d.pool.Exec(ctx, `
+		DELETE FROM songs WHERE id = $1 AND status <> 'processing' AND learning_status <> 'processing'`, id)
 	if isInvalidUUID(err) {
 		return ErrNotFound
 	}
@@ -295,13 +305,20 @@ func (d *DB) DeleteSong(ctx context.Context, id string) error {
 	return ErrNotFound
 }
 
-// RetrySong puts a failed song back in the queue with a fresh set of attempts.
-// It returns ErrNotFound if the song doesn't exist or isn't failed.
+// RetrySong puts a failed song, or its failed learning pass, back in the queue
+// with a fresh set of attempts. It returns ErrNotFound if the song doesn't
+// exist or neither failed.
 func (d *DB) RetrySong(ctx context.Context, id string) error {
 	tag, err := d.pool.Exec(ctx, `
 		UPDATE songs
-		SET status = 'pending', attempts = 0, last_error = NULL, locked_at = NULL, updated_at = now()
-		WHERE id = $1 AND status = 'failed'`, id)
+		SET status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END,
+		    attempts = CASE WHEN status = 'failed' THEN 0 ELSE attempts END,
+		    last_error = CASE WHEN status = 'failed' THEN NULL ELSE last_error END,
+		    learning_status = CASE WHEN learning_status = 'failed' THEN 'pending' ELSE learning_status END,
+		    learning_attempts = CASE WHEN learning_status = 'failed' THEN 0 ELSE learning_attempts END,
+		    learning_error = CASE WHEN learning_status = 'failed' THEN NULL ELSE learning_error END,
+		    locked_at = NULL, updated_at = now()
+		WHERE id = $1 AND (status = 'failed' OR learning_status = 'failed')`, id)
 	if isInvalidUUID(err) {
 		return ErrNotFound
 	}

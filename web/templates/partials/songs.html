@@ -9,10 +9,11 @@
 </div>
 {{end}}
 
-{{/* Rows still being processed poll themselves until they're done or failed. */}}
+{{/* Rows still being processed poll themselves until they're done or failed,
+     and so do Ready songs while their instruments are being split. */}}
 {{define "song-row"}}
 <li class="song" id="song-{{.ID}}"
-    {{if inProgress .Status}}hx-get="/songs/{{.ID}}/row" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
+    {{if or (inProgress .Status) (eq .LearningStatus "processing")}}hx-get="/songs/{{.ID}}/row" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
   <img class="thumb" src="https://i.ytimg.com/vi/{{videoID .SourceURL}}/mqdefault.jpg" alt="" loading="lazy">
   <div class="song-info">
     <div class="song-title">{{with .Title}}{{.}}{{else}}<span class="muted">Fetching details…</span>{{end}}</div>
@@ -20,6 +21,10 @@
       {{with .Author}}{{.}} · {{end}}added {{with .AddedBy}}by {{.}} {{end}}{{ago .CreatedAt}}
     </div>
     {{if eq .Status "failed"}}{{with .LastError}}<div class="error small">{{.}}</div>{{end}}{{end}}
+    {{if eq .Status "done"}}
+      {{if eq .LearningStatus "processing"}}<div class="small muted">Splitting the instruments for practice…</div>
+      {{else if eq .LearningStatus "failed"}}<div class="error small">Couldn't split the instruments{{with .LearningError}}: {{.}}{{end}}</div>{{end}}
+    {{end}}
   </div>
   <span class="badge badge-{{.Status}}">{{statusLabel .Status}}</span>
   <div class="song-actions">
@@ -28,14 +33,14 @@
             hx-post="/queue" hx-vals='{"song_id": "{{.ID}}"}' hx-swap="none">+ Queue</button>
     <a class="button small" href="/practice/{{.ID}}" title="Play it on this device, with tools for learning it">Practice</a>
     {{end}}
-    {{if eq .Status "failed"}}
+    {{if or (eq .Status "failed") (eq .LearningStatus "failed")}}
     <button type="button" class="small"
             hx-post="/songs/{{.ID}}/retry" hx-target="closest li" hx-swap="outerHTML">Retry</button>
     {{end}}
     <a class="icon-link" href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer"
        title="Open on YouTube" aria-label="Open on YouTube">↗</a>
     {{/* a song being processed can't be deleted; see db.DeleteSong */}}
-    {{if ne .Status "processing"}}
+    {{if and (ne .Status "processing") (ne .LearningStatus "processing")}}
     <button type="button" class="icon-link icon-delete" title="Delete" aria-label="Delete song"
             hx-delete="/songs/{{.ID}}" hx-target="closest li" hx-swap="outerHTML"
             hx-confirm="Delete “{{with .Title}}{{.}}{{else}}this song{{end}}”? Its audio files are deleted too.">

@@ -50,17 +50,20 @@ Loop, count-in, speed and key are remembered per song on that device, and the mi
 
 ## Track splitting
 
-The processor splits songs with [audio-separator](https://github.com/nomadkaraoke/python-audio-separator), on the CPU. The original is decoded with ffmpeg, separated by a model, and every track is stored as Opus in WebM.
+The processor splits songs with [audio-separator](https://github.com/nomadkaraoke/python-audio-separator), on the CPU, in two passes. The original is decoded with ffmpeg, separated by a model, and every track is stored as Opus in WebM.
 
-| Pass | Model (default) | Tracks |
-|---|---|---|
-| Karaoke | `UVR_MDXNET_KARA_2.onnx` | `vocals`, `instrumental` |
+| Pass | When | Model (default) | Tracks |
+|---|---|---|---|
+| Karaoke | right after the download; the song is **Ready** after it | `UVR_MDXNET_KARA_2.onnx` | `vocals`, `instrumental` |
+| Learning | when no song waits for its karaoke pass | `htdemucs_6s.yaml` (Demucs) | `drums`, `bass`, `guitar`, `piano`, `other` |
 
-- The karaoke model removes the lead vocal and keeps backing vocals in the instrumental, like most karaoke tracks.
-- It takes time: on an 8-thread laptop CPU, about 1.2–1.6× the song's length, and up to 3.5 GB of memory. It runs under `nice`, so the web app stays responsive.
-- Models download on first use (about 70 MB for the karaoke one) into the `models` volume.
-- A pass that runs over 40 minutes, or gets killed (usually out of memory), fails the song like any other error.
-- To try another model, set `MINUSONE_KARAOKE_MODEL` to one from `audio-separator --list_models`.
+- The karaoke model removes the lead vocal and keeps backing vocals in the instrumental, like most karaoke tracks. The learning model's own vocals are dropped: the karaoke ones are cleaner.
+- A learning pass gives way: if a song is added while one runs, it stops and is requeued, and the new song's karaoke pass goes first. The catalog shows when a song's instruments are being split, and **Retry** if that failed.
+- It takes time: on an 8-thread laptop CPU, the karaoke pass takes about 1.2–1.6× the song's length and up to 3.5 GB of memory; the learning pass about 2–3× and up to 4.5 GB. Both run under `nice`, so the web app stays responsive.
+- Models download on first use (about 120 MB) into the `models` volume.
+- A pass that runs over 40 minutes, or gets killed (usually out of memory), fails like any other error.
+- Songs that were Ready before splitting existed get their tracks through the learning pass, karaoke tracks first, and stay playable meanwhile.
+- To try other models, set `MINUSONE_KARAOKE_MODEL` / `MINUSONE_LEARNING_MODEL` to ones from `audio-separator --list_models`.
 
 The models are trained by the [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) community.
 
@@ -131,6 +134,7 @@ The binary itself reads these. Compose sets them from `.env`; set them yourself 
 | `MINUSONE_S3_BUCKET` | `minusone` |
 | `MINUSONE_S3_SSL` | `false` |
 | `MINUSONE_KARAOKE_MODEL` | `UVR_MDXNET_KARA_2.onnx` |
+| `MINUSONE_LEARNING_MODEL` | `htdemucs_6s.yaml` |
 
 ## Development
 
