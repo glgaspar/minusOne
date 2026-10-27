@@ -2,6 +2,7 @@
 """minusone-analyze: the processor's audio analysis, run once per job.
 
     minusone-analyze align <vocals audio> <lines.json>
+    minusone-analyze transcribe <vocals audio>
 
 align times lyrics word by word against a song's vocals track. lines.json is
 a list of {"text": ...}, the lyrics line by line. It writes
@@ -9,6 +10,10 @@ a list of {"text": ...}, the lyrics line by line. It writes
 "text"}]}]} to stdout, in seconds. score is the median log-likelihood per
 20 ms of the words: around -1 or above when the lyrics are the song's, well
 below when they aren't.
+
+transcribe writes the lyrics it hears in the vocals, for songs whose lyrics
+weren't found: {"language": "pt", "lines": [{"text": ...}]}. Untimed: align
+times them, more precisely than the transcription would.
 
 Errors go to stderr, with the reason on the last line. Models download on
 first use into $MINUSONE_MODELS.
@@ -24,6 +29,13 @@ MODELS = os.environ.get("MINUSONE_MODELS") or os.path.join(tempfile.gettempdir()
 THREADS = max(1, (os.cpu_count() or 2) - 2)
 # how long a line stays up after its last word, unless the next one starts
 LINE_HOLD = 1.5
+# Whisper's "small": good on sung Portuguese and English, ~0.2x the song's
+# length on a laptop CPU, 1 GB of memory
+WHISPER = "small"
+# a transcribed line ends after this many words
+LINE_WORDS = 10
+# capitalized words that don't start a phrase
+NOT_PHRASE_START = {"I", "I'm", "I'll", "I've", "I'd", "Deus", "God"}
 
 
 def model_file(name, url):
@@ -91,7 +103,42 @@ def align(vocals, lines_path):
     json.dump({"score": round(float(np.median(per_frame)), 3), "lines": lines}, sys.stdout, ensure_ascii=False)
 
 
-COMMANDS = {"align": (align, 2)}
+def transcribe(vocals):
+    import soundfile
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(WHISPER, device="cpu", compute_type="int8", cpu_threads=THREADS,
+                         download_root=os.path.join(MODELS, "whisper"))
+    # 16 kHz mono, decoded by the caller: given a file, faster-whisper 1.2
+    # decodes it with PyAV and fails on its current versions
+    audio, _ = soundfile.read(vocals, dtype="float32")
+    segments, info = model.transcribe(audio, word_timestamps=True, vad_filter=True,
+                                      condition_on_previous_text=False)
+
+    # a line per segment, but Whisper's segments often hold two sung lines:
+    # break them where a new phrase starts too. (Not at pauses: singers hold
+    # notes before a line's last word.)
+    lines, words = [], []
+    for segment in segments:
+        # Whisper's own test for music it heard words in. no_speech_prob
+        # alone is high on most singing, even when the words are right.
+        if segment.no_speech_prob > 0.6 and segment.avg_logprob < -1:
+            continue
+        for i, w in enumerate(segment.words):
+            text = w.word.strip()
+            if not text:
+                continue
+            new_phrase = text[0].isupper() and text not in NOT_PHRASE_START and len(words) >= 3
+            if words and (i == 0 or new_phrase or len(words) >= LINE_WORDS):
+                lines.append({"text": " ".join(words)})
+                words = []
+            words.append(text)
+    if words:
+        lines.append({"text": " ".join(words)})
+    json.dump({"language": info.language, "lines": lines}, sys.stdout, ensure_ascii=False)
+
+
+COMMANDS = {"align": (align, 2), "transcribe": (transcribe, 1)}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS or len(sys.argv) - 2 != COMMANDS[sys.argv[1]][1]:

@@ -675,7 +675,12 @@ async function loadLyrics() {
     li.append(text, loop);
     list.append(li);
   }
-  $("lyrics-source").textContent = lyrics.wordSynced ? "from LRCLIB, timed to the vocals" : "from LRCLIB, timed by line";
+  $("lyrics-source").textContent =
+    lyrics.source === "transcribed"
+      ? "written down from the vocals, so some words may be wrong"
+      : lyrics.wordSynced
+        ? "from LRCLIB, timed to the vocals"
+        : "from LRCLIB, timed by line";
   $("lyrics-panel").hidden = false;
 }
 

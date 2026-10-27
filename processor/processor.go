@@ -169,7 +169,7 @@ func (s *Song) ProcessLearning(ctx context.Context, database *db.DB, store *Stor
 		s.Tracks = nil
 	}
 	s.lookUpLyrics(ctx, database)
-	if err := s.alignLyrics(ctx, database, store); err != nil {
+	if err := s.timeLyrics(ctx, database, store); err != nil {
 		return err
 	}
 	if has("drums") {

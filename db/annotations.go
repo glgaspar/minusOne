@@ -13,6 +13,7 @@ import (
 type Lyrics struct {
 	Source       string      `json:"source"`             // "lrclib" or "transcribed"
 	LrclibID     int64       `json:"lrclibId,omitempty"` // the LRCLIB entry they came from
+	Language     string      `json:"language,omitempty"` // when transcribed, as Whisper detected it
 	Instrumental bool        `json:"instrumental,omitempty"`
 	WordSynced   bool        `json:"wordSynced"` // words are timed against the vocals, not just lines
 	Lines        []LyricLine `json:"lines"`

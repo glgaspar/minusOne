@@ -21,16 +21,23 @@ import (
 // another song's around -1.6.
 const minAlignScore = -1.3
 
-// alignLyrics times the song's lyrics word by word against its vocals, unless
-// they are already, or it has none.
-func (s *Song) alignLyrics(ctx context.Context, database *db.DB, store *Store) error {
+// minTranscribedLines: a transcription shorter than this is noise Whisper
+// heard in an instrumental song.
+const minTranscribedLines = 3
+
+// timeLyrics times the song's lyrics word by word against its vocals. With no
+// lyrics, or lyrics that don't fit the vocals (another song's), it writes them
+// down from the vocals with Whisper first. Lyrics already timed, or an
+// instrumental, are left as they are.
+func (s *Song) timeLyrics(ctx context.Context, database *db.DB, store *Store) error {
 	var lyrics db.Lyrics
 	err := database.GetAnnotation(ctx, s.ID, db.LyricsKind, &lyrics)
-	if errors.Is(err, db.ErrNotFound) {
-		return nil
-	}
-	if err != nil || lyrics.WordSynced || lyrics.Instrumental || len(lyrics.Lines) == 0 {
+	found := err == nil
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return err
+	}
+	if found && (lyrics.WordSynced || lyrics.Instrumental) {
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, passTimeout)
@@ -39,31 +46,61 @@ func (s *Song) alignLyrics(ctx context.Context, database *db.DB, store *Store) e
 	if err != nil {
 		return err
 	}
-	texts := make([]map[string]string, len(lyrics.Lines))
-	for i, l := range lyrics.Lines {
+	if found && len(lyrics.Lines) > 0 {
+		lines, score, err := s.align(ctx, vocals, lyrics.Lines)
+		if err != nil {
+			return err
+		}
+		if score >= minAlignScore {
+			lyrics.Lines, lyrics.WordSynced = lines, true
+			return database.PutAnnotation(ctx, s.ID, db.LyricsKind, lyrics)
+		}
+		log.Printf("the lyrics found for %s don't fit its vocals (score %.2f): transcribing them instead", s.ID, score)
+	}
+
+	out, err := output(ctx, "nice", "-n", "10", "minusone-analyze", "transcribe", vocals)
+	if err != nil {
+		return fmt.Errorf("transcribing the lyrics: %w", err)
+	}
+	transcribed := db.Lyrics{Source: "transcribed"}
+	if err := json.Unmarshal(out, &transcribed); err != nil {
+		return fmt.Errorf("transcribing the lyrics: reading the result: %w", err)
+	}
+	if len(transcribed.Lines) < minTranscribedLines {
+		transcribed.Lines, transcribed.Instrumental = nil, true
+		return database.PutAnnotation(ctx, s.ID, db.LyricsKind, transcribed)
+	}
+	// the transcription is the vocals' own words: no need to check the score
+	if transcribed.Lines, _, err = s.align(ctx, vocals, transcribed.Lines); err != nil {
+		return err
+	}
+	transcribed.WordSynced = true
+	return database.PutAnnotation(ctx, s.ID, db.LyricsKind, transcribed)
+}
+
+// align times lines word by word against the vocals, and says how well they
+// fit (see minAlignScore).
+func (s *Song) align(ctx context.Context, vocals string, lines []db.LyricLine) ([]db.LyricLine, float64, error) {
+	texts := make([]map[string]string, len(lines))
+	for i, l := range lines {
 		texts[i] = map[string]string{"text": l.Text}
 	}
 	linesPath := filepath.Join(s.WorkDir, "lines.json")
 	if err := writeJSON(linesPath, texts); err != nil {
-		return err
+		return nil, 0, err
 	}
 	out, err := output(ctx, "nice", "-n", "10", "minusone-analyze", "align", vocals, linesPath)
 	if err != nil {
-		return fmt.Errorf("timing the lyrics: %w", err)
+		return nil, 0, fmt.Errorf("timing the lyrics: %w", err)
 	}
 	var aligned struct {
 		Score float64        `json:"score"`
 		Lines []db.LyricLine `json:"lines"`
 	}
 	if err := json.Unmarshal(out, &aligned); err != nil {
-		return fmt.Errorf("timing the lyrics: reading the result: %w", err)
+		return nil, 0, fmt.Errorf("timing the lyrics: reading the result: %w", err)
 	}
-	if aligned.Score < minAlignScore {
-		log.Printf("the lyrics found for %s don't fit its vocals (score %.2f); keeping their line timing", s.ID, aligned.Score)
-		return nil
-	}
-	lyrics.Lines, lyrics.WordSynced = aligned.Lines, true
-	return database.PutAnnotation(ctx, s.ID, db.LyricsKind, lyrics)
+	return aligned.Lines, aligned.Score, nil
 }
 
 // trackAudio fetches one of the song's stored tracks into WorkDir and decodes

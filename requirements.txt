@@ -1,29 +1,40 @@
 # The Python tools the processor runs, pinned: audio-separator (track
-# splitting) and analysis/analyze.py (lyrics timing). Their own dependencies
+# splitting) and analysis/analyze.py (lyrics timing and transcription). Their own dependencies
 # float, and some (onnx-weekly) publish nightly builds.
 # torch comes from PyTorch's CPU index: the default wheel bundles CUDA (GBs).
 #
 # To upgrade: install the top-level packages (audio-separator[cpu], audioread,
-# ctc-forced-aligner, Unidecode) in a clean python:3.12 container (torch and
-# torchvision first, from the CPU index), check that a song separates and
-# aligns, then replace the pins below with pip freeze.
+# ctc-forced-aligner, Unidecode, faster-whisper) in a clean python:3.12 container (torch and
+# torchvision first, from the CPU index), check that a song separates,
+# aligns and transcribes, then replace the pins below with pip freeze (minus
+# yt-dlp's, installed on its own).
 --extra-index-url https://download.pytorch.org/whl/cpu
 absl-py==2.5.1
+anyio==4.15.1
 audio-separator==0.47.0
 audioread==3.1.0
+av==19.0.1
 beartype==0.18.5
 certifi==2026.10.23
 cffi==2.1.1
 charset-normalizer==3.5.2
+click==8.5.0
 cloudpickle==3.1.2
 ctc-forced-aligner==1.0.2
+ctranslate2==4.8.2
 Cython==3.3.0
 decorator==5.3.1
 diffq==0.2.4
 einops==0.8.2
+faster-whisper==1.2.1
 filelock==3.32.3
 flatbuffers==25.12.19
 fsspec==2026.7.0
+h11==0.16.0
+hf-xet==1.7.0
+httpcore2==2.13.1
+httpx2==2.13.1
+huggingface_hub==2.2.0
 idna==3.20
 Jinja2==3.1.6
 joblib==1.6.0
@@ -63,6 +74,7 @@ soundfile==0.14.0
 soxr==1.1.0
 sympy==1.14.0
 threadpoolctl==3.7.0
+tokenizers==0.23.3
 torch==2.14.1+cpu
 torchvision==0.29.1+cpu
 tqdm==4.70.1
