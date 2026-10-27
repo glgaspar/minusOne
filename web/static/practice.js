@@ -654,8 +654,19 @@ const LYRICS_FOLLOW_PAUSE_MS = 5000; // the list stops following the song while 
 
 async function loadLyrics() {
   lyrics = await fetchLyrics(song.songId);
-  if (!lyrics?.lines?.length) return;
   const list = $("lyrics-lines");
+  list.replaceChildren();
+  drawLyrics.current = undefined;
+  $("lyrics-panel").hidden = false;
+  $("lyrics-pick").textContent = lyrics?.lines?.length ? "Wrong lyrics?" : "Find lyrics";
+  if (!lyrics?.lines?.length) {
+    $("lyrics-source").textContent = lyrics?.instrumental
+      ? "none: it's instrumental"
+      : lyrics?.source === "transcribed"
+        ? "being written down from the vocals…"
+        : "none found yet";
+    return;
+  }
   for (const line of lyrics.lines) {
     const li = document.createElement("li");
     const text = document.createElement("span");
@@ -680,9 +691,86 @@ async function loadLyrics() {
       ? "written down from the vocals, so some words may be wrong"
       : lyrics.wordSynced
         ? "from LRCLIB, timed to the vocals"
-        : "from LRCLIB, timed by line";
-  $("lyrics-panel").hidden = false;
+        : "from LRCLIB, timed by line (the words get timed in a few minutes)";
 }
+
+// ---------------------------------------------------------------- picking lyrics
+
+async function openLyricsPicker() {
+  $("lyrics-picker").showModal();
+  await searchLyricsCandidates("");
+}
+
+// searchLyricsCandidates lists LRCLIB's entries for the words typed, or for
+// the song's own search terms.
+async function searchLyricsCandidates(words) {
+  const list = $("lyrics-candidates");
+  list.replaceChildren(pickerNote("Searching…"));
+  let found;
+  try {
+    const res = await fetch(`/songs/${song.songId}/lyrics/candidates?q=${encodeURIComponent(words)}`, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `HTTP ${res.status}`);
+    found = await res.json();
+  } catch (err) {
+    list.replaceChildren(pickerNote(`Couldn't search: ${err.message}.`));
+    return;
+  }
+  if (!words) $("lyrics-search").value = found.terms;
+  list.replaceChildren();
+  if (!found.candidates.length) list.append(pickerNote("Nothing found. Try other words."));
+  for (const c of found.candidates) {
+    const li = document.createElement("li");
+    const info = document.createElement("div");
+    info.className = "candidate-info";
+    const name = document.createElement("div");
+    name.className = "song-title";
+    name.textContent = `${c.track} · ${c.artist}`;
+    const meta = document.createElement("div");
+    meta.className = "small muted";
+    meta.textContent = [formatTime(c.duration), c.instrumental ? "instrumental" : c.timed ? c.preview : "not timed", c.id === found.current ? "in use" : ""]
+      .filter(Boolean)
+      .join(" · ");
+    info.append(name, meta);
+    const use = document.createElement("button");
+    use.type = "button";
+    use.className = "small";
+    use.textContent = "Use these";
+    use.disabled = !c.timed && !c.instrumental;
+    use.addEventListener("click", () => chooseLyrics({ lrclibId: c.id }));
+    li.append(info, use);
+    list.append(li);
+  }
+}
+
+function pickerNote(text) {
+  const li = document.createElement("li");
+  li.className = "muted small";
+  li.textContent = text;
+  return li;
+}
+
+async function chooseLyrics(choice) {
+  const res = await fetch(`/songs/${song.songId}/lyrics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(choice),
+  }).catch(() => null);
+  if (!res?.ok) {
+    const message = await res?.json().then((e) => e.message).catch(() => null);
+    toast(message ? `Couldn't use them: ${message}.` : "Couldn't change the lyrics.", true);
+    return;
+  }
+  $("lyrics-picker").close();
+  toast(choice.transcribe ? "They'll be written down from the vocals in a few minutes." : "Got them. Their words get timed to the vocals in a few minutes.");
+  loadLyrics();
+}
+
+$("lyrics-pick").addEventListener("click", openLyricsPicker);
+$("lyrics-search-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  searchLyricsCandidates($("lyrics-search").value.trim());
+});
+$("lyrics-transcribe").addEventListener("click", () => chooseLyrics({ transcribe: true }));
 
 // drawLyrics highlights the line being sung, and its words, and keeps it in view.
 function drawLyrics() {

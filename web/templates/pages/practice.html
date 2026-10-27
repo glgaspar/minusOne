@@ -75,6 +75,7 @@
       <div class="lyrics-head">
         <h2>Lyrics</h2>
         <span class="small muted" id="lyrics-source"></span>
+        <button type="button" class="link small tool-push" id="lyrics-pick">Wrong lyrics?</button>
       </div>
       <ol class="lyrics-lines" id="lyrics-lines" aria-label="Lyrics: click a line to play from there"></ol>
     </div>
@@ -105,6 +106,22 @@
     </dl>
     <div class="actions"><button type="button" data-close-dialog>Close</button></div>
   </div>
+</dialog>
+
+<dialog id="lyrics-picker" aria-label="Pick the lyrics">
+  <form class="picker" id="lyrics-search-form">
+    <h2>Pick the lyrics</h2>
+    <p class="muted small">From <a href="https://lrclib.net" target="_blank" rel="noopener noreferrer">LRCLIB</a>. The ones you pick get their words timed to the vocals in a few minutes.</p>
+    <div class="picker-search">
+      <input type="search" id="lyrics-search" aria-label="Search LRCLIB" placeholder="Artist and title">
+      <button type="submit" class="small">Search</button>
+    </div>
+    <ul class="picker-list" id="lyrics-candidates"></ul>
+    <div class="actions">
+      <button type="button" class="link small" id="lyrics-transcribe">None of these: write them down from the vocals</button>
+      <button type="button" data-close-dialog>Cancel</button>
+    </div>
+  </form>
 </dialog>
 
 {{template "track-template"}}

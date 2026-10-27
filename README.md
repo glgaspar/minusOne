@@ -77,6 +77,7 @@ Once a song's karaoke pass is done, the processor looks its lyrics up on [LRCLIB
 - The learning pass then times the lyrics **word by word** against the song's own vocals track, with [ctc-forced-aligner](https://github.com/deskpai/ctc_forced_aligner) (an ONNX build of Meta's multilingual MMS alignment model, licensed CC-BY-NC 4.0: fine for a home server, not for anything commercial): the player lights the words up as they're sung. It uses the words, not LRCLIB's times, so lyrics timed for another version of the song (a longer intro) still line up. It takes about 0.6× the song's length and up to 4.5 GB of memory; the model (1.2 GB) downloads on first use.
 - If LRCLIB had no lyrics, or its words don't fit the vocals (another song's lyrics, say), the lyrics are written down from the vocals with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper's "small" model, about 0.2× the song's length, 1 GB of memory and 500 MB of download), then timed the same way. The practice page says when lyrics were transcribed: some words may be wrong. A song where Whisper hears almost nothing is taken as instrumental.
 - The practice page lists the lyrics: the line being sung is highlighted, a click on a line plays from there, and ⟲ loops it.
+- The **Wrong lyrics?** link on the practice page lists LRCLIB's matches (searchable) to pick from, or has them written down from the vocals instead. Either way they're timed again in the background.
 
 Lyrics are copyrighted: they're shown here for the people using your server, like the songs themselves.
 

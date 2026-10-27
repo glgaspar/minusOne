@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -22,7 +23,7 @@ import (
 // only a starting point: the learning pass times the words against the
 // song's own vocals.
 
-var lrclibSearchURL = "https://lrclib.net/api/search"
+var lrclibURL = "https://lrclib.net/api"
 
 // LRCLIB asks clients to say who they are.
 const lrclibUserAgent = "minusOne (self-hosted karaoke, github.com/glgaspar/minusOne)"
@@ -41,25 +42,25 @@ type lrclibEntry struct {
 	SyncedLyrics string  `json:"syncedLyrics"`
 }
 
-// searchLyrics asks LRCLIB for a song's entries. It retries a few times: the
-// service answers 503 when it's busy.
-func searchLyrics(ctx context.Context, artist, track string) ([]lrclibEntry, error) {
-	q := url.Values{"track_name": {track}}
-	if artist != "" {
-		q.Set("artist_name", artist)
+// lrclibGet asks LRCLIB for path (under /api) and decodes the answer into v.
+// It retries a few times: the service answers 503 when it's busy.
+func lrclibGet(ctx context.Context, path string, query url.Values, v any) error {
+	u := lrclibURL + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
 	}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return ctx.Err()
 			case <-time.After(time.Duration(attempt) * lrclibRetryWait):
 			}
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, lrclibSearchURL+"?"+q.Encode(), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		req.Header.Set("User-Agent", lrclibUserAgent)
 		resp, err := lrclibClient.Do(req)
@@ -67,21 +68,30 @@ func searchLyrics(ctx context.Context, artist, track string) ([]lrclibEntry, err
 			lastErr = err
 			continue
 		}
-		var entries []lrclibEntry
-		err = json.NewDecoder(resp.Body).Decode(&entries)
+		err = json.NewDecoder(resp.Body).Decode(v)
 		resp.Body.Close()
 		switch {
 		case resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests:
 			lastErr = fmt.Errorf("lrclib: %s", resp.Status)
 		case resp.StatusCode != http.StatusOK:
-			return nil, fmt.Errorf("lrclib: %s", resp.Status)
+			return fmt.Errorf("lrclib: %s", resp.Status)
 		case err != nil:
-			return nil, fmt.Errorf("lrclib: reading the answer: %w", err)
+			return fmt.Errorf("lrclib: reading the answer: %w", err)
 		default:
-			return entries, nil
+			return nil
 		}
 	}
-	return nil, lastErr
+	return lastErr
+}
+
+// searchLyrics asks LRCLIB for a song's entries.
+func searchLyrics(ctx context.Context, artist, track string) ([]lrclibEntry, error) {
+	q := url.Values{"track_name": {track}}
+	if artist != "" {
+		q.Set("artist_name", artist)
+	}
+	var entries []lrclibEntry
+	return entries, lrclibGet(ctx, "/search", q, &entries)
 }
 
 const (
@@ -177,6 +187,74 @@ func lookupTerms(title, channel string) (artist, track string) {
 	track = strings.Trim(strings.TrimSpace(featuring.ReplaceAllString(track, "")), `"“”`)
 	return artist, track
 }
+
+// LyricsCandidate is an LRCLIB entry someone can pick for a song whose lyrics
+// were wrong.
+type LyricsCandidate struct {
+	ID       int64   `json:"id"`
+	Artist   string  `json:"artist"`
+	Track    string  `json:"track"`
+	Duration float64 `json:"duration"`
+	// Timed: it has lines with times. Untimed entries can't be picked.
+	Timed        bool   `json:"timed"`
+	Instrumental bool   `json:"instrumental"`
+	Preview      string `json:"preview"` // its first lines
+}
+
+// LyricsSearchTerms are the words a song is looked up with on LRCLIB.
+func LyricsSearchTerms(title, channel string) string {
+	artist, track := lookupTerms(title, channel)
+	return strings.TrimSpace(artist + " " + track)
+}
+
+// LyricsCandidates lists the LRCLIB entries for a search: the words someone
+// typed, or, with none, the terms taken from the song's title and channel.
+func LyricsCandidates(ctx context.Context, title, channel, search string) ([]LyricsCandidate, error) {
+	var entries []lrclibEntry
+	var err error
+	if search = strings.TrimSpace(search); search != "" {
+		err = lrclibGet(ctx, "/search", url.Values{"q": {search}}, &entries)
+	} else {
+		artist, track := lookupTerms(title, channel)
+		entries, err = searchLyrics(ctx, artist, track)
+	}
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]LyricsCandidate, 0, len(entries))
+	for _, e := range entries {
+		lines := parseLRC(e.SyncedLyrics, e.Duration)
+		var preview []string
+		for i := 0; i < len(lines) && i < 2; i++ {
+			preview = append(preview, lines[i].Text)
+		}
+		candidates = append(candidates, LyricsCandidate{
+			ID: e.ID, Artist: e.ArtistName, Track: e.TrackName, Duration: e.Duration,
+			Timed: len(lines) > 0, Instrumental: e.Instrumental, Preview: strings.Join(preview, " / "),
+		})
+	}
+	return candidates, nil
+}
+
+// ChosenLyrics fetches an LRCLIB entry someone picked, as the song's lyrics.
+// They're timed by line only: the learning pass times their words.
+func ChosenLyrics(ctx context.Context, id int64) (*db.Lyrics, error) {
+	var e lrclibEntry
+	if err := lrclibGet(ctx, "/get/"+strconv.FormatInt(id, 10), nil, &e); err != nil {
+		return nil, err
+	}
+	if e.Instrumental {
+		return &db.Lyrics{Source: "lrclib", LrclibID: e.ID, Instrumental: true}, nil
+	}
+	lines := parseLRC(e.SyncedLyrics, e.Duration)
+	if len(lines) == 0 {
+		return nil, ErrUntimedLyrics
+	}
+	return &db.Lyrics{Source: "lrclib", LrclibID: e.ID, Lines: lines}, nil
+}
+
+// ErrUntimedLyrics: an LRCLIB entry has lyrics but no times.
+var ErrUntimedLyrics = errors.New("these lyrics aren't timed")
 
 // findLyrics looks the song up on LRCLIB and saves the lyrics it picks. It
 // returns whether it saved any. Nothing found isn't an error.

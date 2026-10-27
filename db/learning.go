@@ -73,3 +73,14 @@ func (d *DB) RequeueLearning(ctx context.Context, songID string) error {
 		WHERE id = $1 AND learning_status = 'processing'`, songID)
 	return err
 }
+
+// QueueLearning queues a Ready song's learning pass again: to time lyrics
+// someone picked, say. Its finished steps are skipped. A pass running now is
+// left alone: callers wait for it to end.
+func (d *DB) QueueLearning(ctx context.Context, songID string) error {
+	_, err := d.pool.Exec(ctx, `
+		UPDATE songs
+		SET learning_status = 'pending', learning_attempts = 0, learning_error = NULL, updated_at = now()
+		WHERE id = $1 AND status = 'done' AND learning_status <> 'processing'`, songID)
+	return err
+}

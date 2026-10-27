@@ -250,6 +250,17 @@ input[type="range"]:focus { outline-offset: 2px; }
 .lyrics-panel[hidden] { display: none; }
 .lyrics-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .lyrics-head h2 { margin: 0; font-size: 1rem; }
+.lyrics-head .tool-push { margin-left: auto; }
+.picker { display: flex; flex-direction: column; gap: 12px; padding: 20px 24px; }
+.picker h2, .picker p { margin: 0; }
+.picker-search { display: flex; gap: 8px; }
+.picker-search input { flex: 1; }
+.picker-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.picker-list li { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; }
+.picker-list li:hover { background: var(--bg); }
+.candidate-info { flex: 1; min-width: 0; }
+.candidate-info .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker .actions { justify-content: space-between; }
 .lyrics-lines { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; scroll-behavior: smooth; }
 .lyrics-lines li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; }
 .lyrics-lines li.is-current { background: var(--bg); }

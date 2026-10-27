@@ -98,11 +98,55 @@ func TestSearchLyricsRetriesWhenBusy(t *testing.T) {
 		json.NewEncoder(w).Encode([]lrclibEntry{{ID: 7, Duration: 281, SyncedLyrics: lrc(6)}})
 	}))
 	defer srv.Close()
-	defer func(u string, wait time.Duration) { lrclibSearchURL, lrclibRetryWait = u, wait }(lrclibSearchURL, lrclibRetryWait)
-	lrclibSearchURL, lrclibRetryWait = srv.URL, time.Millisecond
+	defer func(u string, wait time.Duration) { lrclibURL, lrclibRetryWait = u, wait }(lrclibURL, lrclibRetryWait)
+	lrclibURL, lrclibRetryWait = srv.URL, time.Millisecond
 
 	entries, err := searchLyrics(context.Background(), "Chitãozinho & Xororó", "Evidências")
 	if err != nil || len(entries) != 1 || entries[0].ID != 7 || calls != 2 {
 		t.Errorf("entries %+v, err %v, calls %d", entries, err, calls)
+	}
+}
+
+func fakeLRCLIB(t *testing.T, handler http.HandlerFunc) {
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	old, wait := lrclibURL, lrclibRetryWait
+	t.Cleanup(func() { lrclibURL, lrclibRetryWait = old, wait })
+	lrclibURL, lrclibRetryWait = srv.URL, time.Millisecond
+}
+
+func TestLyricsCandidatesAndChoosing(t *testing.T) {
+	fakeLRCLIB(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/search" && r.URL.Query().Get("q") == "evidencias ao vivo":
+			json.NewEncoder(w).Encode([]lrclibEntry{{ID: 1, ArtistName: "Chitãozinho & Xororó", TrackName: "Evidências", Duration: 281, SyncedLyrics: "[00:23.77] Quando eu digo\n[00:27.00] É porque\n[00:30.00] Quando eu digo"}})
+		case r.URL.Path == "/search" && r.URL.Query().Get("track_name") == "Evidências" && r.URL.Query().Get("artist_name") == "Chitãozinho & Xororó":
+			json.NewEncoder(w).Encode([]lrclibEntry{{ID: 2, TrackName: "Evidências"}, {ID: 3, Instrumental: true}})
+		case r.URL.Path == "/get/1":
+			json.NewEncoder(w).Encode(lrclibEntry{ID: 1, Duration: 281, SyncedLyrics: "[00:23.77] Quando eu digo\n[00:27.00] É porque"})
+		case r.URL.Path == "/get/2":
+			json.NewEncoder(w).Encode(lrclibEntry{ID: 2, Duration: 281})
+		default:
+			t.Errorf("unexpected %s", r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	ctx := context.Background()
+
+	typed, err := LyricsCandidates(ctx, "ignored", "ignored", " evidencias ao vivo ")
+	if err != nil || len(typed) != 1 || typed[0].ID != 1 || !typed[0].Timed || typed[0].Preview != "Quando eu digo / É porque" {
+		t.Errorf("typed search: %+v, %v", typed, err)
+	}
+	fromTitle, err := LyricsCandidates(ctx, "Chitãozinho & Xororó - Evidências (Ao Vivo)", "Chitãozinho & Xororó", "")
+	if err != nil || len(fromTitle) != 2 || fromTitle[0].Timed || !fromTitle[1].Instrumental {
+		t.Errorf("search from the title: %+v, %v", fromTitle, err)
+	}
+
+	lyrics, err := ChosenLyrics(ctx, 1)
+	if err != nil || lyrics.LrclibID != 1 || len(lyrics.Lines) != 2 || lyrics.WordSynced || lyrics.Lines[1].End != 281 {
+		t.Errorf("chosen: %+v, %v", lyrics, err)
+	}
+	if _, err := ChosenLyrics(ctx, 2); err != ErrUntimedLyrics {
+		t.Errorf("untimed entry: %v", err)
 	}
 }
