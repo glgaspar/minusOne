@@ -3,6 +3,7 @@
 
     minusone-analyze align <vocals audio> <lines.json>
     minusone-analyze transcribe <vocals audio>
+    minusone-analyze chords <instrumental audio>
 
 align times lyrics word by word against a song's vocals track. lines.json is
 a list of {"text": ...}, the lyrics line by line. It writes
@@ -14,6 +15,12 @@ below when they aren't.
 transcribe writes the lyrics it hears in the vocals, for songs whose lyrics
 weren't found: {"language": "pt", "lines": [{"text": ...}]}. Untimed: align
 times them, more precisely than the transcription would.
+
+chords finds a song's beats, chords and key, best from its instrumental:
+{"key": {"root": 0-11, "mode": "major"|"minor"}, "tempo": bpm,
+"beats": [seconds], "chords": [{"start", "end", "root": 0-11, "quality"}]},
+with C as 0 and qualities "", "m", "7", "m7" and "maj7". Stretches with no
+chord are left out.
 
 Errors go to stderr, with the reason on the last line. Models download on
 first use into $MINUSONE_MODELS.
@@ -138,7 +145,66 @@ def transcribe(vocals):
     json.dump({"language": info.language, "lines": lines}, sys.stdout, ensure_ascii=False)
 
 
-COMMANDS = {"align": (align, 2), "transcribe": (transcribe, 1)}
+# chord templates: intervals above the root
+QUALITIES = {"": (0, 4, 7), "m": (0, 3, 7), "7": (0, 4, 7, 10), "m7": (0, 3, 7, 10), "maj7": (0, 4, 7, 11)}
+# Krumhansl-Kessler key profiles, from C
+MAJOR = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+MINOR = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+
+
+def chords(audio):
+    # Chroma (how much of each of the 12 notes sounds) per beat, matched
+    # against chord templates, smoothed with Viterbi so a chord lasts unless
+    # the music clearly moves. Major and minor are reliable; 7ths less.
+    import numpy as np
+    import librosa
+
+    y, sr = librosa.load(audio, sr=22050, mono=True)
+    hop = 512
+    tempo, beats = librosa.beat.beat_track(y=y, sr=sr, hop_length=hop)
+    chroma = librosa.feature.chroma_cqt(y=librosa.effects.harmonic(y, margin=4), sr=sr, hop_length=hop, bins_per_octave=36)
+    bounds = np.concatenate([[0], beats, [chroma.shape[1]]]).astype(int)
+    per_beat = librosa.util.sync(chroma, bounds, aggregate=np.median)
+    times = librosa.frames_to_time(bounds, sr=sr, hop_length=hop)
+
+    states = [None]  # no chord
+    templates = [np.full(12, 1 / np.sqrt(12))]
+    for quality, intervals in QUALITIES.items():
+        for root in range(12):
+            t = np.zeros(12)
+            t[[(root + i) % 12 for i in intervals]] = 1
+            # a triad wins unless the 7th is clearly there
+            templates.append(t / np.linalg.norm(t) * (0.97 if len(intervals) == 4 else 1))
+            states.append((root, quality))
+    energy = per_beat.sum(axis=0)
+    quiet = energy < 0.05 * np.median(energy)
+    similarity = np.array(templates) @ (per_beat / np.maximum(np.linalg.norm(per_beat, axis=0), 1e-9))
+    similarity[0] = 0.55  # "no chord" wins when nothing fits well
+    similarity[:, quiet] = 0
+    similarity[0, quiet] = 1
+    likelihood = np.exp(similarity * 25)
+    likelihood /= likelihood.sum(axis=0, keepdims=True)
+    path = librosa.sequence.viterbi(likelihood, librosa.sequence.transition_loop(len(states), 0.8))
+
+    found = []
+    for i, s in enumerate(path):
+        start, end = round(float(times[i]), 3), round(float(times[i + 1]), 3)
+        if found and found[-1]["state"] == s and found[-1]["end"] == start:
+            found[-1]["end"] = end
+        elif states[s] is not None:
+            found.append({"state": s, "start": start, "end": end})
+    mean = chroma.mean(axis=1)
+    key = max(((np.corrcoef(np.roll(profile, r), mean)[0, 1], r, mode)
+               for mode, profile in (("major", MAJOR), ("minor", MINOR)) for r in range(12)))
+    json.dump({
+        "key": {"root": key[1], "mode": key[2]},
+        "tempo": round(float(np.atleast_1d(tempo)[0]), 1),
+        "beats": [round(float(t), 3) for t in librosa.frames_to_time(beats, sr=sr, hop_length=hop)],
+        "chords": [{"start": c["start"], "end": c["end"], "root": states[c["state"]][0], "quality": states[c["state"]][1]} for c in found],
+    }, sys.stdout)
+
+
+COMMANDS = {"align": (align, 2), "transcribe": (transcribe, 1), "chords": (chords, 1)}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS or len(sys.argv) - 2 != COMMANDS[sys.argv[1]][1]:

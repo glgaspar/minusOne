@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -10,18 +11,20 @@ import (
 	"github.com/glgaspar/minusOne/processor"
 )
 
-// songLyrics answers a song's timed lyrics as JSON (db.Lyrics), or 404 while
-// it has none. The players fetch it once per song.
-func (s *Server) songLyrics(c echo.Context) error {
-	var lyrics db.Lyrics
-	err := s.db.GetAnnotation(c.Request().Context(), c.Param("id"), db.LyricsKind, &lyrics)
-	if errors.Is(err, db.ErrNotFound) {
-		return echo.ErrNotFound
+// songAnnotation answers a song's annotation of a kind as JSON (db.Lyrics,
+// db.Chords), or 404 while it has none. The players fetch it once per song.
+func (s *Server) songAnnotation(kind string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var data json.RawMessage
+		err := s.db.GetAnnotation(c.Request().Context(), c.Param("id"), kind, &data)
+		if errors.Is(err, db.ErrNotFound) {
+			return echo.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return c.JSONBlob(http.StatusOK, data)
 	}
-	if err != nil {
-		return err
-	}
-	return c.JSON(http.StatusOK, lyrics)
 }
 
 func deref(s *string) string {

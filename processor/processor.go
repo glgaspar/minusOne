@@ -141,7 +141,7 @@ func finish(ctx context.Context, database *db.DB, song *Song, jobErr error, atte
 }
 
 // ProcessLearning prepares a Ready song for practicing: it times its lyrics
-// word by word and splits it into instruments. A song from before tracks were
+// word by word, finds its chords and splits it into instruments. A song from before tracks were
 // split gets its karaoke tracks first. Each step that's already done is
 // skipped, so a pass that gave way picks up where it stopped.
 func (s *Song) ProcessLearning(ctx context.Context, database *db.DB, store *Store, models Models) error {
@@ -170,6 +170,9 @@ func (s *Song) ProcessLearning(ctx context.Context, database *db.DB, store *Stor
 	}
 	s.lookUpLyrics(ctx, database)
 	if err := s.timeLyrics(ctx, database, store); err != nil {
+		return err
+	}
+	if err := s.detectChords(ctx, database, store); err != nil {
 		return err
 	}
 	if has("drums") {

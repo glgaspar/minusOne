@@ -81,6 +81,14 @@ Once a song's karaoke pass is done, the processor looks its lyrics up on [LRCLIB
 
 Lyrics are copyrighted: they're shown here for the people using your server, like the songs themselves.
 
+## Chords
+
+The learning pass also finds each song's **chords, beats and key**, from its instrumental track, with [librosa](https://librosa.org): the notes sounding on each beat are matched against major, minor and 7th chords, and smoothed so a chord lasts unless the music clearly moves. It takes under a minute per song.
+
+The practice page shows the chord now and the next one, the chords along the waveform, and above the lyrics, on the word where each changes. They're spelled for the song's key (B♭, not A♯, in F major) and follow the **Key** setting when you transpose.
+
+Major and minor chords come out right most of the time; 7ths less often, and richer chords (sus, 9ths, slash chords) are simplified to the closest of those.
+
 ## Running with Docker
 
 Requirements: Docker with Compose v2.

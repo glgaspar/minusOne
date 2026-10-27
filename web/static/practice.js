@@ -49,6 +49,7 @@ let markers = []; // [{ id, label, start, end }], in song order
 let recording = null; // { stream, source } while recording
 let take = null; // { samples, start, tempo, semitones, url } of the last recording
 let lyrics = null; // the song's timed lyrics (db.Lyrics), once loaded
+let chords = null; // its chords and key (db.Chords), once loaded
 let lyricsScrolledAt = 0; // when the user last scrolled the lyrics themselves
 
 // ---------------------------------------------------------------- engine
@@ -312,6 +313,7 @@ function setStretch(speed, key) {
   }
   $("speed").value = settings.speed;
   $("key").value = settings.key;
+  labelLyricChords();
   updateStretchLabels();
   updateTakeInfo();
 }
@@ -379,6 +381,23 @@ function drawWaveform() {
   g.globalAlpha = 1;
   g.fillStyle = color("--text");
   g.fillRect(played - dpr, 0, 2 * dpr, height);
+
+  // chords along the bottom, where their names fit
+  if (chords) {
+    g.font = `${10 * dpr}px system-ui, sans-serif`;
+    g.textBaseline = "bottom";
+    let free = 0; // where the last name ended
+    for (const c of chords.chords) {
+      const at = x(c.start);
+      const name = chordName(c);
+      if (at < free) continue;
+      g.fillStyle = color("--muted");
+      g.fillRect(at, height - 12 * dpr, dpr, 12 * dpr);
+      g.fillStyle = color("--text");
+      g.fillText(name, at + 2 * dpr, height);
+      free = at + g.measureText(name).width + 6 * dpr;
+    }
+  }
 
   // saved sections: a bar along the top with the name, if it fits
   g.font = `${11 * dpr}px system-ui, sans-serif`;
@@ -694,6 +713,94 @@ async function loadLyrics() {
         : "from LRCLIB, timed by line (the words get timed in a few minutes)";
 }
 
+// ---------------------------------------------------------------- chords
+
+const SHARPS = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+const FLATS = ["C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "B"];
+// keys written with flats
+const FLAT_KEYS = { major: [5, 10, 3, 8, 1, 6], minor: [2, 7, 0, 5, 10, 3] };
+
+async function loadChords() {
+  chords = await fetchAnnotation(song.songId, "chords");
+  $("chord-strip").hidden = !chords?.chords?.length;
+}
+
+// shiftedKey is the song's key as played: moved by the Key setting.
+function shiftedKey() {
+  return { root: (((chords.key.root + settings.key) % 12) + 12) % 12, mode: chords.key.mode };
+}
+
+function noteName(root, key) {
+  const names = FLAT_KEYS[key.mode]?.includes(key.root) ? FLATS : SHARPS;
+  return names[((root % 12) + 12) % 12];
+}
+
+// chordName spells a chord as played, sharps or flats by the key.
+function chordName(c) {
+  return noteName(c.root + settings.key, shiftedKey()) + c.quality;
+}
+
+function chordAt(t) {
+  let lo = 0;
+  let hi = chords.chords.length - 1;
+  let at = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (chords.chords[mid].start <= t) {
+      at = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return at;
+}
+
+function drawChordStrip() {
+  if (!chords?.chords?.length) return;
+  const t = engine.time();
+  const i = chordAt(t);
+  const now = i >= 0 && t < chords.chords[i].end ? chords.chords[i] : null;
+  const next = chords.chords[i + 1];
+  setText($("chord-now"), now ? chordName(now) : "–");
+  setText($("chord-next"), next ? chordName(next) : "");
+  const key = shiftedKey();
+  setText($("chord-key"), `Key: ${noteName(key.root, key)} ${key.mode}${settings.key ? " (transposed)" : ""}`);
+}
+
+// placeLyricChords pins each chord to the word of the lyrics it changes on,
+// or to a line's first word when it changes just before the line.
+function placeLyricChords() {
+  if (!chords?.chords?.length || !lyrics?.lines?.length) return;
+  const items = $("lyrics-lines").children;
+  for (const c of chords.chords) {
+    let i = lyricLineAt(lyrics.lines, c.start);
+    let w = 0;
+    const ahead = lyricLineAt(lyrics.lines, c.start + 1);
+    if (ahead > i) {
+      i = ahead; // changes within a second before the line: on its first word
+    } else if (i < 0 || c.start >= lyrics.lines[i].end) {
+      continue; // between lines
+    } else {
+      const words = lyrics.lines[i].words ?? [];
+      while (w + 1 < words.length && words[w + 1].start <= c.start + 0.15) w++;
+    }
+    const span = items[i]?.querySelectorAll(".word")[w];
+    if (!span) continue;
+    (span.chords ??= []).push(c);
+    items[i].classList.add("has-chords");
+  }
+  labelLyricChords();
+}
+
+// labelLyricChords writes the pinned chords' names, as played.
+function labelLyricChords() {
+  if (!chords) return;
+  for (const span of $("lyrics-lines").querySelectorAll(".word")) {
+    if (span.chords) span.dataset.chord = span.chords.map(chordName).join(" ");
+  }
+}
+
 // ---------------------------------------------------------------- picking lyrics
 
 async function openLyricsPicker() {
@@ -762,7 +869,7 @@ async function chooseLyrics(choice) {
   }
   $("lyrics-picker").close();
   toast(choice.transcribe ? "They'll be written down from the vocals in a few minutes." : "Got them. Their words get timed to the vocals in a few minutes.");
-  loadLyrics();
+  loadLyrics().then(placeLyricChords);
 }
 
 $("lyrics-pick").addEventListener("click", openLyricsPicker);
@@ -870,7 +977,7 @@ async function start() {
   setLoop(settings.loop);
   setStretch(settings.speed, settings.key);
   loadMarkers();
-  loadLyrics();
+  Promise.all([loadLyrics(), loadChords()]).then(placeLyricChords);
   requestAnimationFrame(frame);
   setInterval(() => syncVideo(engine.time(), engine.playing && !engine.isCounting(), engine.tempo), SYNC_MS);
 }
@@ -880,6 +987,7 @@ function frame() {
   updatePlayButton();
   drawWaveform();
   drawLyrics();
+  drawChordStrip();
   requestAnimationFrame(frame);
 }
 

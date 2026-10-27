@@ -103,6 +103,30 @@ func (s *Song) align(ctx context.Context, vocals string, lines []db.LyricLine) (
 	return aligned.Lines, aligned.Score, nil
 }
 
+// detectChords finds the song's chords, beats and key in its instrumental,
+// unless it has them.
+func (s *Song) detectChords(ctx context.Context, database *db.DB, store *Store) error {
+	var chords db.Chords
+	err := database.GetAnnotation(ctx, s.ID, db.ChordsKind, &chords)
+	if err == nil || !errors.Is(err, db.ErrNotFound) {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, passTimeout)
+	defer cancel()
+	instrumental, err := s.trackAudio(ctx, database, store, "instrumental")
+	if err != nil {
+		return err
+	}
+	out, err := output(ctx, "nice", "-n", "10", "minusone-analyze", "chords", instrumental)
+	if err != nil {
+		return fmt.Errorf("finding the chords: %w", err)
+	}
+	if err := json.Unmarshal(out, &chords); err != nil {
+		return fmt.Errorf("finding the chords: reading the result: %w", err)
+	}
+	return database.PutAnnotation(ctx, s.ID, db.ChordsKind, chords)
+}
+
 // trackAudio fetches one of the song's stored tracks into WorkDir and decodes
 // it to 16 kHz mono, what the analysis models listen at.
 func (s *Song) trackAudio(ctx context.Context, database *db.DB, store *Store, trackType string) (string, error) {

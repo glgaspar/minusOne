@@ -1,13 +1,15 @@
 # The Python tools the processor runs, pinned: audio-separator (track
-# splitting) and analysis/analyze.py (lyrics timing and transcription). Their own dependencies
-# float, and some (onnx-weekly) publish nightly builds.
-# torch comes from PyTorch's CPU index: the default wheel bundles CUDA (GBs).
+# splitting) and analysis/analyze.py (lyrics timing, transcription and
+# chords). Their own dependencies float, and some (onnx-weekly) publish
+# nightly builds. torch comes from PyTorch's CPU index: the default wheel
+# bundles CUDA (GBs).
 #
 # To upgrade: install the top-level packages (audio-separator[cpu], audioread,
-# ctc-forced-aligner, Unidecode, faster-whisper) in a clean python:3.12 container (torch and
-# torchvision first, from the CPU index), check that a song separates,
-# aligns and transcribes, then replace the pins below with pip freeze (minus
-# yt-dlp's, installed on its own).
+# ctc-forced-aligner, Unidecode, faster-whisper, librosa) in a clean
+# python:3.12 container (torch and torchvision first, from the CPU index),
+# check that a song separates, aligns, transcribes and gets chords, then
+# replace the pins below with pip freeze (minus yt-dlp's, installed on its
+# own).
 --extra-index-url https://download.pytorch.org/whl/cpu
 absl-py==2.5.1
 anyio==4.15.1

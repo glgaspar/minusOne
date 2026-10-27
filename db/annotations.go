@@ -32,6 +32,28 @@ type LyricWord struct {
 	Text  string  `json:"text"`
 }
 
+// Chords are a song's chords and beats, in seconds, with its key. Notes are
+// numbers, 0 for C to 11 for B: the player spells them for the key, and
+// transposes them.
+type Chords struct {
+	Key    Key       `json:"key"`
+	Tempo  float64   `json:"tempo"` // beats per minute
+	Beats  []float64 `json:"beats"`
+	Chords []Chord   `json:"chords"`
+}
+
+type Key struct {
+	Root int    `json:"root"`
+	Mode string `json:"mode"` // "major" or "minor"
+}
+
+type Chord struct {
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+	Root    int     `json:"root"`
+	Quality string  `json:"quality"` // "", "m", "7", "m7" or "maj7"
+}
+
 // Annotation kinds.
 const (
 	LyricsKind = "lyrics"

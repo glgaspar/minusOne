@@ -228,15 +228,19 @@ function buildMixer(song, mixer, store, opts = {}) {
 
 // ---------------------------------------------------------------- lyrics
 
-// fetchLyrics returns a song's timed lyrics (see db.Lyrics), or null while it
-// has none.
-async function fetchLyrics(songId) {
+// fetchAnnotation returns what the processor found about a song, "lyrics"
+// (db.Lyrics) or "chords" (db.Chords), or null while it has none.
+async function fetchAnnotation(songId, kind) {
   try {
-    const res = await fetch(`/songs/${songId}/lyrics`, { headers: { Accept: "application/json" } });
+    const res = await fetch(`/songs/${songId}/${kind}`, { headers: { Accept: "application/json" } });
     return res.ok ? await res.json() : null;
   } catch {
     return null;
   }
+}
+
+function fetchLyrics(songId) {
+  return fetchAnnotation(songId, "lyrics");
 }
 
 // lyricLineAt returns the index of the last line that started by t, or -1.
